@@ -1,6 +1,6 @@
 # Looma AI
 
-Last verified: 2026-11-01 at 865883ff for the "Build pipeline" section; the prototype sections below are from
+Last verified: 2026-11-01 at b1b63e54 for the "Build pipeline" section; the prototype sections below are from
 upstream `de3b4b9` and were not re-run.
 
 ## Build pipeline (F1-F13)

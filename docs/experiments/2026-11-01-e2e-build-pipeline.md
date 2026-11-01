@@ -140,4 +140,97 @@ and Box measurements.
 
 Commits on `feat/p5-02-e2e-build-pipeline`: `b77eb0d0` design, `2ea99136` image and settings, `98de28d5` F1,
 `6b063a76` F2, `89cc7efd` F4, `cf73ca00` F3, `ebeca399` F5, `bd2ca9f9` F6, `2f532dfc` this record (plan),
-`62d1b5e0` F7, `35f6f9a6` F8, `9c29b1cc` F12 and search, `865883ff` F9, F13, verify and e2e.
+`62d1b5e0` F7, `35f6f9a6` F8, `9c29b1cc` F12 and search, `865883ff` F9, F13, verify and e2e. Section 9 adds
+`8d7ddcc1`, `5817aa2f` and `b1b63e54`.
+
+## 9. Addendum, same day: the full scope, and three fixes it exposed
+
+Sections 5 to 8 stay as measured. Here the same gates were run, unchanged, on the full scope (`SCOPE=all`: every
+activity except the excluded file types). Dev-machine numbers, not Box numbers.
+
+### What the first full-scope build showed
+- It was stopped by hand after about 21 minutes, in F9, with 246 of 1,844 chapters queried (about 4.3 s each).
+- Cause: with any filter (CEHRD-only items are always filtered out), the word search sent every allowed passage to
+  SQLite as `rowid IN (SELECT value FROM json_each(?))`, and SQLite re-ran the FTS5 match once per allowed row
+  (`EXPLAIN QUERY PLAN`: `SCAN passages_fts VIRTUAL TABLE INDEX 0:=M2` with a `LIST SUBQUERY`). On the full word
+  index the match took 0.7 ms without the list, 135 ms with 1,930 rows and 3,058 ms with 40,112 rows. Most of the
+  pilot's 92.9 ms p50 in section 5 was this cost.
+- The stopped F9 wrote status `ok`: Ctrl+C raises `KeyboardInterrupt`, which the stage wrapper did not catch.
+
+### Fixes
+
+| Commit | Change | Evidence |
+|---|---|---|
+| `8d7ddcc1` | FTS5 returns matches in rank order and disallowed passages are skipped until `depth` are kept; vectors are scored in one pass and the allowed rows picked afterwards | on the full-scope index, old and new search gave the same top 10 (item, score, similarity, passage) for 69 of 69 query and filter pairs; tests compare against the old SQL and fail if the allowed rows reach SQLite again |
+| `5817aa2f` | a stage stopped by Ctrl+C or SIGTERM reports `interrupted`; SIGTERM is handled (the pipeline is PID 1 in its container, and PID 1 ignores SIGTERM without a handler); every stage report records peak RSS | a pilot build sent SIGTERM after 20 s wrote `f12_checks: interrupted`; the new tests fail on the old code |
+| `b1b63e54` | F7 loads the full-size model only for its int8 agreement report and releases it; the e2e run shares one int8 embedder and asks for the comparison in build 1 only | warmed sessions measured at 430 MB (int8) and 746 MB (full size); two full-scope builds in one process had peaked at 1,896 MB of the container's 2 GiB |
+
+Search on the full-scope index, before and after `8d7ddcc1` (23 queries per filter; median / p95):
+
+| Filter | Before | After |
+|---|---|---|
+| default (CEHRD-only hidden; 39,415 of 40,212 passages allowed) | 4,409 / 10,558 ms | 12 / 18 ms |
+| grade 6 (28,175 allowed) | 3,103 / 7,815 ms | 13 / 18 ms |
+| one chapter (69 allowed) | 20 / 49 ms | 13 / 22 ms |
+
+### Results at `b1b63e54`
+
+| Run | Total time | Result | Peak RSS | Search p50 / p95 (400 queries) |
+|---|---|---|---|---|
+| `make pipeline-e2e SCOPE=pilot` | 57 s | every decided gate passes; content hash `28cc7d6ec27da78d…` as in section 5; the 1,634 F9 proposals identical to section 5's | 1,594 MB | 9.0 / 24.1 ms |
+| `make pipeline-build SCOPE=all` | 1 min 58 s (vectors cached) | 11 stage reports `ok`, bundle signed | 1,592 MB | 18.7 / 42.7 ms |
+| `make pipeline-e2e SCOPE=all` | 4 min 12 s | every decided gate passes | 1,666 MB | 15.4 / 39.1 ms |
+
+Full-scope gates:
+
+| Gate | Result | Measured |
+|---|---|---|
+| G1 | PASS | curated checksum `8e58fba128fcb671…` before and after |
+| G2 | PASS | 11 stage reports `ok`; one build 117.7 s |
+| G3 | PASS | verify ok; one changed byte refused at `checksums`; another model refused at `model expected by the reader` |
+| G4 | PASS | content hash `459c5174a908f4ba…` equal for both builds; second build embedded 0 passages |
+| G5 | PASS | self-test after loading the bundle's own model: 20/20 |
+| G6 | PASS | English 199/200 (gate 0.95), Nepali 200/200, CEHRD-only results 0 |
+| G7 | PASS | 1,645/1,645 chapters with items return results; 0 outside their chapter |
+| G9 | PASS | 198 tests passed |
+
+Full-scope data: 24,045 activities, 23,681 in scope, 1,844 chapters, 767 lessons, 878 games. 13,529 files are
+referenced and none was found (the content folder is empty), so F3 produced 40,144 pieces from the database only
+(25,691 titles, 13,676 lesson pieces, 777 game pieces). F6 made 40,212 passages (30,790 English, 9,152 Nepali, 270
+mixed; mean 32.4 tokens, at most 200). 61.9% of items have no grade band; 797 are CEHRD-only. Bundle 176.2 MB
+(vectors 15 MB, SQLite 24 MB). First-time embedding, from the stopped build: 36,124 new passages in 218 s.
+
+G8 on the full scope (bundle top 3):
+
+| Question | Today | Bundle top 3 |
+|---|---|---|
+| photosynthesis | 7 | Photosynthesis [chapter]; What is Photosynthesis [video]; Photosynthesis: Calvin Cycle [video] |
+| how do plants make food | 0 | 1SF Animals and Plants [lesson]; 2S Food From Plants & Animals [lesson]; 4S03 Organisms [game] |
+| units of measurement | 1 | Local and standard units of measurement [chapter]; Multiple and submultiple units [chapter]; Measurement and unit [chapter] |
+| नाप र एकाइ | 0 | Measurement and unit [chapter]; नाप र नाप्ने साधनहरू [worksheet]; Multiple and submultiple units [chapter] |
+| prakash sanshleshan | 0 | 3EN My Lovely Family(2) [lesson]; 3ENG01.00001 My lovely family(2) [lesson]; Swami Prapannacharya [chapter] |
+
+int8 against full size on the full scope's sample: mean cosine 0.991, mean top-10 overlap 0.87, identical top 10 for
+16% of queries (the sample is the first 200 passages, so it differs from the pilot's).
+
+### Analysis
+- With the fixes, the full database builds in about 2 minutes once vectors are cached, and every gate set before
+  the first run passes on it.
+- The one English miss is "Old Nepal 00094". The model scores near-identical numbered titles almost alike (0.924
+  for this item, 0.952 for the best), so it is outside the meaning list's top 100, and it is fourth in the word list.
+  RRF favours items found by both lists. A ranking change, such as a boost for an exact title match, needs the golden
+  question set to evaluate; nothing was changed.
+- F9 at full scope made 18,439 proposals: every one of the 1,844 chapters got the maximum of 10 (similarity 0.80 to
+  0.964, median 0.87). The threshold is uncalibrated and too low, as on the pilot.
+- Memory: the e2e run peaked at 1,666 MB of the container's 2 GiB, a single build at 1,592 MB; the two model
+  sessions in F7 account for 1,176 MB. Real textbook text will add passages; peak RSS is now in every stage report.
+- Romanized Nepali still returns unrelated items (EXP-008).
+
+Artifacts:
+
+| Artifact | Location | sha256 | Size |
+|---|---|---|---|
+| full-scope e2e report | `data/runs/e2e-20261101T122710Z/e2e-report.json` (not in Git) | `092e2117acb46ff9e39522c5570d4a6a9553f64f8f2129c473fd0614e986a34d` | 5,989 bytes |
+| full-scope bundle checksum list | `data/bundles/looma-ai-bundle-2026.11.01-all-r4/SHA256SUMS` (not in Git) | `38906551fc8307974a128fd83909f6addd7a306009453ef06941b1ca3a2f1a4d` | 776 bytes |
+| full-scope bundle | `data/bundles/looma-ai-bundle-2026.11.01-all-r4/` (not in Git) | content hash `459c5174a908f4bacf62dcc454a628c079a192f9d461cf93f798784b2a399acb` | 176,170,966 bytes |
+| pilot e2e report at `b1b63e54` | `data/runs/e2e-20261101T123514Z/e2e-report.json` (not in Git) | `0e15eb2140535640da884506e8c8b6a677fc85e1f5fd5749e307248c94acbc9f` | 5,866 bytes |

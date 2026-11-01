@@ -3,7 +3,7 @@
 For: a developer setting up loomaai for the first time, or running the build pipeline (F1 to F13). Covers the
 prerequisites, the pipeline commands with what each writes, and every `make` target in the repository.
 
-Last verified: 2026-11-01 at 865883ff on a laptop with WSL2 (Linux 6.18), Docker 29.9.2, Compose 5.6.1. The
+Last verified: 2026-11-01 at b1b63e54 on a laptop with WSL2 (Linux 6.18), Docker 29.9.2, Compose 5.6.1. The
 pipeline targets were run; the prototype targets (`appai/`) are described from the Makefile and were not re-run.
 
 ## Prerequisites
@@ -12,7 +12,8 @@ pipeline targets were run; the prototype targets (`appai/`) are described from t
 |---|---|---|
 | Looma-II running (network `loomanet`, container `looma-db`) | local Looma-II stack | `docker ps --filter name=looma-db` |
 | Docker with Compose v2 | Docker 29.9.2 used | `docker compose version` |
-| Free disk | about 1 GB for the image, 0.6 GB for the model, 0.14 GB per pilot bundle | `df -h .` |
+| Free disk | about 1 GB for the image, 0.6 GB for the model, 0.14 GB per pilot bundle, 0.18 GB per full bundle | `df -h .` |
+| Free memory | 2 GiB for the pipeline container (`--memory 2g`); measured peak 1,666 MB | `free -h` |
 | Network, once | to download the embedder from Hugging Face | `make pipeline-model` |
 
 You don't need Python on the host for the pipeline: everything runs inside the `looma-pipeline` image.
@@ -49,9 +50,20 @@ You don't need Python on the host for the pipeline: everything runs inside the `
    Check: `verify` prints `"ok": true` and eight passed checks.
 
 To run every gate at once (two builds, verification, tampered copies, tests), use `make pipeline-e2e SCOPE=pilot`.
-It took 2 min 34 s on the machine above and writes its report to `data/runs/e2e-<time>/e2e-report.md`.
+It took 57 s on the machine above and writes its report to `data/runs/e2e-<time>/e2e-report.md`.
 
-`SCOPE=all` builds every activity; it has not been timed yet and may take longer than ten minutes.
+`SCOPE=all` builds every activity in MongoDB (23,681 items, 40,212 passages). Measured on the machine above:
+
+| Command | Time | Peak memory |
+|---|---|---|
+| `make pipeline-build SCOPE=all`, first time (every passage embedded) | about 6 min, of which 3.6 min embedding | not measured |
+| `make pipeline-build SCOPE=all`, vectors cached | 1 min 58 s | 1,592 MB |
+| `make pipeline-e2e SCOPE=all` | 4 min 12 s | 1,666 MB |
+
+The first-time figure is estimated from a build whose F7 embedded 36,124 new passages in 218 s.
+
+To stop a run, press Ctrl+C or run `docker stop <container>`. The stage that was running writes its report with
+status `interrupted`, the command exits with 130 (Ctrl+C) or 143 (`docker stop`), and no bundle is written.
 
 ## Make targets
 

@@ -4,7 +4,7 @@ For: developers joining the project and reviewers of design changes. Covers what
 works under, how its parts fit, and why. This version describes the existing prototype and the new build pipeline
 (stages F1 to F13) added on branch `feat/p5-02-e2e-build-pipeline`.
 
-Last verified: 2026-11-01 at 865883ff (design written first, then checked against the code and the end-to-end run)
+Last verified: 2026-11-01 at b1b63e54 (design written first, then checked against the code and the end-to-end runs)
 
 ## 1. Goals and scope
 
@@ -121,8 +121,14 @@ files and the vectors, then runs the bundle's self-test queries. Any failure pri
 
 ### Search (reference implementation)
 The query is normalized; English and Nepali terms go to FTS5 (with dictionary expansion) and the query embedding
-goes to an exact dot product over the allowed rows. Both lists are filtered before the cut, merged with RRF
-(k = 60) and grouped by item. The same code serves F9, F12, `verify` and `make pipeline-search`.
+goes to an exact dot product over every passage in one pass. Filters become one mask over passages: disallowed
+passages are dropped from the vector scores and skipped while reading FTS5 matches in rank order, so both lists are
+filtered before the cut. They are merged with RRF (k = 60) and grouped by item. The same code serves F9, F12,
+`verify` and `make pipeline-search`.
+
+Restricting FTS5 inside SQL (`rowid IN (...)`) was tried first and rejected: SQLite re-ran the match once per
+allowed row, about 3 s per query at 40,000 passages. Skipping gives the same lists, because FTS5 ranks with
+whole-index statistics; measured at 12-19 ms per query on the full scope (experiment record, section 9).
 
 ## 7. Deployment
 
@@ -132,7 +138,9 @@ goes to an exact dot product over the allowed rows. Both lists are filtered befo
 | Looma Box (arm64, offline) | nothing from this pipeline yet; it will receive bundles | not verified yet |
 
 Volumes: `data/` is mounted at `/data`, the content folder read-only at `/content`. The container runs as the host
-user and has a memory limit.
+user and has a 2 GiB memory limit. Measured peaks: 1,592 MB for a full-scope build and 1,666 MB for a full-scope
+e2e run, of which 1,176 MB are the int8 and full-size model sessions loaded together in F7. The full-size model
+serves only F7's int8 agreement report and is released straight after.
 
 ## 8. Cross-cutting concepts
 
