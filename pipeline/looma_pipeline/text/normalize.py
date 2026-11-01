@@ -13,9 +13,9 @@ import unicodedata
 
 from bs4 import BeautifulSoup
 
-ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍⁠﻿"), None)
+ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"), None)
 _DATA_URI = re.compile(r"data:[^\"'\s)>]+")
-_SPACES = re.compile(r"[ \t\r\f\v  -   　]+")
+_SPACES = re.compile(r"[ \t\r\f\v\u00a0\u2000-\u200a\u202f\u205f\u3000]+")
 _BLANK_LINES = re.compile(r"\n\s*\n+")
 _NOISE_TAGS = ("script", "style", "noscript", "nav", "header", "footer", "aside", "form")
 

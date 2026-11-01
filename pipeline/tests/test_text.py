@@ -5,13 +5,13 @@ from looma_pipeline.text.script import devanagari_share, language_of
 
 
 def test_nfc_and_zero_width_characters_make_nepali_words_equal():
-    typed_with_joiner = "क्‍ष"
-    assert normalize_text("﻿नाप​") == "नाप"
+    typed_with_joiner = "क्\u200dष"
+    assert normalize_text("\ufeffनाप\u200b") == "नाप"
     assert normalize_text(typed_with_joiner) == "क्ष"
 
 
 def test_whitespace_is_collapsed_but_paragraphs_survive():
-    assert normalize_text("  a \t b  c\n\n\n\nd ") == "a b c\n\nd"
+    assert normalize_text("  a \t b \u00a0c\n\n\n\nd ") == "a b c\n\nd"
 
 
 def test_data_uris_are_removed_before_text_extraction():

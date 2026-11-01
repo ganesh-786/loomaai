@@ -58,7 +58,7 @@ def test_curated_checksum_changes_only_when_curated_fields_change(settings):
 def test_curated_checksum_covers_bom_keys_and_lesson_nepali(settings):
     _c1, base = _snapshot(settings, run_id="a")
     data = fx.looma_data()
-    data["activities"][4]["﻿ch_id"] = ["6SS03"]
+    data["activities"][4]["\ufeffch_id"] = ["6SS03"]
     _c2, bom_changed = _snapshot(settings, data, run_id="b")
     data = fx.looma_data()
     data["lessons"][0]["data"][0]["nepali"] = "अर्को"

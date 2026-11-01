@@ -17,6 +17,7 @@ from typing import Any
 from looma_pipeline.chapters import chapter_grade, chapter_prefix, normalize_ch_ids
 from looma_pipeline.grades import GradeBand, band_from_chapters, band_from_pair, choose_band
 from looma_pipeline.models import Item, TextPiece
+from looma_pipeline.records import merged_fields
 from looma_pipeline.runctx import RunContext
 from looma_pipeline.stages.f01_snapshot import Snapshot
 from looma_pipeline.text.normalize import normalize_text
@@ -33,19 +34,6 @@ SUBJECT_ALIASES = {
 LANG_ALIASES = {"en": "en", "english": "en", "np": "np", "ne": "np", "nepali": "np", "both": "both"}
 TYPO_KEYS = ("cl_l0", "ch_lo", "ch_hi", "cj_id", "dnn")  # recorded, never guessed at
 _GRADE_PREFIX = re.compile(r"^grade\s+\d+\s+", re.IGNORECASE)
-
-
-def merged_fields(doc: dict) -> tuple[dict, int]:
-    """Fold BOM-prefixed keys into their clean names. The clean key wins when both exist.
-
-    Returns:
-        (fields with clean names, number of BOM-prefixed keys seen)
-    """
-    clean = {k: v for k, v in doc.items() if not k.startswith("﻿")}
-    bom_keys = [k for k in doc if k.startswith("﻿")]
-    for key in bom_keys:
-        clean.setdefault(key.lstrip("﻿"), doc[key])
-    return clean, len(bom_keys)
 
 
 def normalize_subject(value: Any) -> str:

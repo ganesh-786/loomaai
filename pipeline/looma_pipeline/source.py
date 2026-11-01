@@ -46,7 +46,7 @@ class MongoSource:
             yield to_plain(document)
 
     def activities(self) -> Iterator[dict]:
-        # BOM-prefixed keys (e.g. "﻿cl_lo") must survive the projection, so read whole documents.
+        # BOM-prefixed keys (e.g. "\ufeffcl_lo") must survive the projection, so read whole documents.
         yield from self._find("activities")
 
     def lessons(self) -> Iterator[dict]:

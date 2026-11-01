@@ -55,8 +55,8 @@ def test_nepali_only_title_is_kept(settings):
 
 
 def test_text_pieces_are_cleaned_tagged_and_empty_ones_dropped(settings):
-    pieces = [TextPiece("x", "title", 0, " Measurement​ and unit "), TextPiece("x", "title", 1, "नाप र एकाइ"),
-              TextPiece("x", "lesson", 0, " ​ ")]
+    pieces = [TextPiece("x", "title", 0, " Measurement\u200b and unit "), TextPiece("x", "title", 1, "नाप र एकाइ"),
+              TextPiece("x", "lesson", 0, " \u200b ")]
     _ctx, _items, cleaned = _clean(settings, pieces)
     assert [(p.text, p.lang) for p in cleaned] == [("Measurement and unit", "en"), ("नाप र एकाइ", "np")]
 

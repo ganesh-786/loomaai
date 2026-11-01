@@ -54,8 +54,8 @@ class Snapshot:
 
 
 def _curated_fields(document: dict, wanted: frozenset[str]) -> dict:
-    # Keep the raw key, so a BOM-prefixed duplicate like "﻿cl_lo" is covered too.
-    return {key: value for key, value in document.items() if key.lstrip("﻿") in wanted}
+    # Keep the raw key, so a BOM-prefixed duplicate like "\ufeffcl_lo" is covered too.
+    return {key: value for key, value in document.items() if key.lstrip("\ufeff") in wanted}
 
 
 def curated_checksum(activities: list[dict], lessons: list[dict], chapters: list[dict]) -> str:
@@ -87,7 +87,7 @@ def scope_chapter_ids(scope: str, chapter_ids: list[str]) -> frozenset[str]:
 
 def activity_chapters(doc: dict) -> tuple[str, ...]:
     """All valid chapter ids an activity is linked to, from ch_id / nch_id and their BOM-prefixed twins."""
-    values = [value for key, value in doc.items() if key.lstrip("﻿") in ("ch_id", "nch_id")]
+    values = [value for key, value in doc.items() if key.lstrip("\ufeff") in ("ch_id", "nch_id")]
     ids, _invalid = normalize_ch_ids(*values)
     return ids
 

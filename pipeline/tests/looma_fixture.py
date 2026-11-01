@@ -49,7 +49,7 @@ _DATA = {
         {"_id": A_LESSON, "ft": "lesson", "dn": "6S Measuring length", "mongoID": LESSON_DOC, "ch_id": CH_6S0102},
         {"_id": A_GAME, "ft": "game", "dn": "Units game", "mongoID": GAME_DOC, "ch_id": [CH_6S0102]},
         {"_id": A_PDF_TOOLS, "ft": "pdf", "dn": "Measuring tools", "ndn": "नाप्ने साधनहरू", "fn": "tools.pdf",
-         "﻿ch_id": [CH_6SS02], "nch_id": [CH_6S0102], "key1": "Lamguage ", "lang": "english"},
+         "\ufeffch_id": [CH_6SS02], "nch_id": [CH_6S0102], "key1": "Lamguage ", "lang": "english"},
         {"_id": A_HTML_CEHRD, "ft": "html", "dn": "Community helpers", "fp": "../content/CEHRD/html/",
          "fn": "community.html", "ch_id": [CH_6SS02], "src": "CEHRD", "key1": "Social Studies"},
         {"_id": A_IMG_FAMILY, "ft": "image", "dn": "Family tree", "fn": "family.jpg", "ch_id": [CH_6SS02],
