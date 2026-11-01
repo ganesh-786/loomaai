@@ -1,11 +1,26 @@
+import json
+
 import looma_fixture as fx
+import numpy as np
 import pytest
 from fake_embedder import FakeEmbedder
 
 from looma_pipeline.chunking import WhitespaceCounter
 from looma_pipeline.pipeline import run_build
-from looma_pipeline.search import Filters, SearchEngine
+from looma_pipeline.query_terms import expand, match_expression, query_terms
+from looma_pipeline.search import DEFAULT_DEPTH, Filters, SearchEngine
 from looma_pipeline.source import DictSource
+
+FILTER_CASES = {
+    "default": Filters(),
+    "cehrd-server": Filters(cehrd_server=True),
+    "grade-5": Filters(grade=5),
+    "grade-6-known-only": Filters(grade=6, include_unknown_grade=False),
+    "chapter": Filters(chapter_id="6SS02"),
+    "videos": Filters(types=frozenset({"video"})),
+}
+QUERIES = ["Measurement and unit", "नाप र एकाइ", "photosynthesis",
+           "family village tools", "unit"]
 
 
 @pytest.fixture
@@ -19,6 +34,57 @@ def engine(settings):
 
 def _ids(hits):
     return [h.item_id for h in hits]
+
+
+def _restricted_inside_sql(engine, query, filters, depth):
+    """The earlier word search, which sent the allowed passages to SQLite. Kept here as the reference."""
+    rows = np.flatnonzero(engine.item_mask(filters)[engine.row_item])
+    expression = match_expression(expand(query_terms(query), engine.db))
+    if expression is None or len(rows) == 0:
+        return []
+    sql = ("SELECT rowid FROM passages_fts WHERE passages_fts MATCH ? AND rowid IN (SELECT value FROM json_each(?)) "
+           "ORDER BY rank, rowid LIMIT ?")
+    return [row[0] for row in engine.db.execute(sql, (expression, json.dumps([int(r) for r in rows]), depth))]
+
+
+@pytest.mark.parametrize("case", FILTER_CASES)
+def test_word_search_returns_what_restricting_inside_sql_returned(engine, case):
+    filters = FILTER_CASES[case]
+    allowed = engine.item_mask(filters)[engine.row_item]
+    compared_nonempty = 0
+    for query in QUERIES:
+        for depth in (1, 3, DEFAULT_DEPTH):
+            expected = _restricted_inside_sql(engine, query, filters, depth)
+            assert engine._lexical(query, allowed, depth) == expected, (query, depth)
+            compared_nonempty += bool(expected)
+    assert compared_nonempty, "every comparison was empty, so this case proved nothing"
+
+
+@pytest.mark.parametrize("case", FILTER_CASES)
+def test_meaning_scores_equal_scoring_only_the_allowed_passages(engine, case):
+    allowed = engine.item_mask(FILTER_CASES[case])[engine.row_item]
+    rows = np.flatnonzero(allowed)
+    vector = engine.embedder.embed_queries(["Measurement and unit"])[0]
+    _top, similarity = engine._dense("Measurement and unit", rows, DEFAULT_DEPTH)
+    np.testing.assert_allclose(similarity[rows], engine.vectors[rows] @ vector, rtol=0, atol=1e-6)
+    assert np.isnan(similarity[~allowed]).all()
+
+
+def test_filtered_search_does_not_send_the_allowed_passages_to_sqlite(engine):
+    """Regression: with the allowed rows in SQL (json_each), SQLite re-ran the match once per allowed row,
+    about 6 s per query at 40,000 passages. The statements must not depend on the filter."""
+    engine.search("Measurement and unit")  # FTS5 reads its config on a connection's first query; not counted
+    statements = []
+    engine.db.set_trace_callback(statements.append)
+    try:
+        engine.search("Measurement and unit", Filters())
+        broad = len(statements)
+        engine.search("Measurement and unit", Filters(chapter_id="6SS02"))
+        narrow = len(statements) - broad
+    finally:
+        engine.db.set_trace_callback(None)
+    assert broad == narrow
+    assert not [s for s in statements if "json_each" in s]
 
 
 def test_exact_title_ranks_its_item_first(engine):

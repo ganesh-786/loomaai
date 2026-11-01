@@ -3,8 +3,10 @@
 Import only. Used by F9 (suggestions), F12 (checks), `verify` and `python -m looma_pipeline search`. The serve-plane
 service will follow the same steps:
 1. Filters become one boolean mask over passages (type, source, subject, grade, chapter, CEHRD rule).
-2. Meaning: the query's vector is scored against the allowed passages only.
-3. Words: query terms plus dictionary translations go to FTS5, restricted to the allowed passages inside SQL.
+2. Meaning: the query's vector is scored against every passage in one pass; disallowed passages are dropped.
+3. Words: query terms plus dictionary translations go to FTS5, which returns matches in rank order; disallowed
+   passages are skipped. FTS5 ranks with whole-index statistics, so this gives the same list as restricting
+   inside SQL, whose cost grew with the number of allowed passages (about 6 s per query at 40,000 passages).
    Both lists are cut to `depth` only after filtering, so a narrow filter still returns its best matches.
 4. Reciprocal rank fusion, k = 60 (Cormack et al. 2009): each list adds 1 / (60 + rank).
 5. Passages are grouped by item; an item's score is its best passage's score.
@@ -13,7 +15,6 @@ Side effects: none (the SQLite file is opened read-only).
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -114,7 +115,7 @@ class SearchEngine:
 
     def _dense(self, query: str, rows: np.ndarray, depth: int) -> tuple[list[int], np.ndarray]:
         vector = self.embedder.embed_queries([query])[0]
-        scores = self.vectors[rows] @ vector
+        scores = (self.vectors @ vector)[rows]  # indexing the vectors first would copy every allowed row
         keep = min(depth, len(rows))
         top = np.argpartition(-scores, keep - 1)[:keep] if keep else np.array([], dtype=np.int64)
         top = top[np.lexsort((rows[top], -scores[top]))]  # by score, ties by row for determinism
@@ -122,26 +123,32 @@ class SearchEngine:
         similarity[rows] = scores
         return [int(rows[i]) for i in top], similarity
 
-    def _lexical(self, query: str, rows: np.ndarray, depth: int) -> list[int]:
+    def _lexical(self, query: str, allowed: np.ndarray, depth: int) -> list[int]:
+        """The first `depth` allowed passages in FTS5 rank order. `allowed` is a boolean mask over vector rows."""
         expression = match_expression(expand(query_terms(query), self.db))
-        if expression is None or len(rows) == 0:
+        if expression is None:
             return []
-        sql = "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?"
-        params: list = [expression]
-        if len(rows) < self.vectors.shape[0]:
-            sql += " AND rowid IN (SELECT value FROM json_each(?))"
-            params.append(json.dumps([int(r) for r in rows]))
-        sql += " ORDER BY rank, rowid LIMIT ?"
-        params.append(depth)
-        return [row[0] for row in self.db.execute(sql, params)]
+        kept: list[int] = []
+        cursor = self.db.execute("SELECT rowid FROM passages_fts WHERE passages_fts MATCH ? ORDER BY rank, rowid",
+                                 (expression,))
+        try:
+            for (row,) in cursor:
+                if allowed[row]:
+                    kept.append(row)
+                    if len(kept) == depth:
+                        break
+        finally:
+            cursor.close()
+        return kept
 
     def search(self, query: str, filters: Filters = Filters(), k: int = 10, depth: int = DEFAULT_DEPTH) -> list[Hit]:
         """The `k` best items for `query` under `filters`."""
-        rows = np.flatnonzero(self.item_mask(filters)[self.row_item])
+        allowed = self.item_mask(filters)[self.row_item]
+        rows = np.flatnonzero(allowed)
         if len(rows) == 0 or not query.strip():
             return []
         dense, similarity = self._dense(query, rows, depth)
-        lexical = self._lexical(query, rows, depth)
+        lexical = self._lexical(query, allowed, depth)
         fused: dict[int, float] = {}
         for ranked in (dense, lexical):
             for rank, row in enumerate(ranked):
