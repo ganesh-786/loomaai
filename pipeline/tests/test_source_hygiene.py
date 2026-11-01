@@ -5,7 +5,8 @@ Invisible characters inside string literals look identical to normal ones in rev
 
 from pathlib import Path
 
-INVISIBLE = {0xFEFF, 0x200B, 0x200C, 0x200D, 0x2060, 0x00A0, 0x202F, 0x205F, 0x3000, *range(0x2000, 0x200B)}
+INVISIBLE = {0xFEFF, 0x200B, 0x200C, 0x200D, 0x2060, 0x00A0, 0x202F, 0x205F, 0x3000, *range(0x2000, 0x200B),
+             0x0900}  # U+0900 is a combining sign; in code it only appears as a regex range start, write \u0900
 ROOT = Path(__file__).resolve().parents[1]
 
 

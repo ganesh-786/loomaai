@@ -1,8 +1,9 @@
 """Turn a search query into an FTS5 MATCH expression, with English-Nepali dictionary expansion.
 
 Import only; pure functions plus dictionary lookups. Words are lowercased (Latin) and NFC-cleaned; very common words
-are dropped. Every term is a prefix match (`"term" *`), which also absorbs Nepali postpositions written as part of
-the word (`नापमा` for `नाप`) and English plurals. Each term is quoted, so user input can never inject FTS syntax.
+are dropped. Word terms are prefix matches (`"term" *`), which also absorbs Nepali postpositions written as part of
+the word (`नापमा` for `नाप`) and English plurals. Numbers are matched exactly: in titles such as "Old Nepal 00152"
+they are identifiers. Each term is quoted, so user input can never inject FTS syntax.
 """
 
 from __future__ import annotations
@@ -20,14 +21,14 @@ STOP_WORDS = frozenset(
 MIN_PREFIX_CHARS = 2      # shorter terms are matched exactly, not as prefixes
 MAX_TERMS = 12            # long pasted text is cut, so a query stays fast
 MAX_EXPANSIONS_PER_TERM = 3
-_TERM = re.compile(r"[\wऀ-ॿ]+")
+_TERM = re.compile(r"[\w\u0900-\u097F]+")
 
 
 def query_terms(query: str) -> list[str]:
     """Distinct search terms in query order."""
     seen: list[str] = []
     for term in _TERM.findall(normalize_text(query).lower()):
-        if term not in STOP_WORDS and term not in seen and not term.isdigit():
+        if term not in STOP_WORDS and term not in seen:
             seen.append(term)
     return seen[:MAX_TERMS]
 
@@ -53,4 +54,5 @@ def match_expression(terms: list[str]) -> str | None:
     if not terms:
         return None
     quoted = ['"' + t.replace('"', '""') + '"' for t in terms]
-    return " OR ".join(f"{q} *" if len(t) >= MIN_PREFIX_CHARS else q for q, t in zip(quoted, terms))
+    return " OR ".join(f"{q} *" if len(t) >= MIN_PREFIX_CHARS and not t.isdigit() else q
+                       for q, t in zip(quoted, terms))

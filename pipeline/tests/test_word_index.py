@@ -40,6 +40,8 @@ def test_query_terms_drop_stop_words_and_are_quoted_safely():
     assert match_expression(['x" OR body:*']) == '"x"" OR body:*" *'  # quote doubled: stays one string
     assert match_expression([]) is None
     assert match_expression(["नाप", "e"]) == '"नाप" * OR "e"'
+    assert query_terms("Old Nepal 00152") == ["old", "nepal", "00152"]
+    assert match_expression(["nepal", "00152"]) == '"nepal" * OR "00152"'  # numbers are identifiers: exact
 
 
 def _index(tmp_path):
@@ -91,6 +93,6 @@ def test_real_lesson_slides_prefix_matches_are_all_true_hits():
     db.execute(f'CREATE VIRTUAL TABLE t USING fts5(body, tokenize="{FTS_TOKENIZER}")')
     db.executemany("INSERT INTO t (body) VALUES (?)", [(t,) for t in texts if t])
     hits = [row[0] for row in db.execute("SELECT body FROM t WHERE t MATCH ?", ('"पानी" *',))]
-    words = re.compile(r"[\wऀ-ॿ]+")
+    words = re.compile(r"[\w\u0900-\u097F]+")
     assert len(hits) > 100
     assert all(any(word.startswith("पानी") for word in words.findall(hit)) for hit in hits)

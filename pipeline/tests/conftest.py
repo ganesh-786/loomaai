@@ -20,4 +20,5 @@ def settings(tmp_path: Path) -> Settings:
         "CHUNK_TARGET_TOKENS": "40",
         "CHUNK_MAX_TOKENS": "60",
         "CHUNK_OVERLAP_TOKENS": "8",
+        "LOOMA_WEB_URL": "http://127.0.0.1:9",  # nothing listens here: tests never depend on Looma being up
     })

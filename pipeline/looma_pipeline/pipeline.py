@@ -19,11 +19,11 @@ from looma_pipeline.logs import add_file_log
 from looma_pipeline.mongo_readonly import connect_readonly
 from looma_pipeline.runctx import RunContext
 from looma_pipeline.source import DataSource, MongoSource
-from looma_pipeline.stages import f01_snapshot, f02_content_map, f03_extract, f04_clean, f05_nepali, f06_chunk, f07_embed, f08_word_index
+from looma_pipeline.stages import f01_snapshot, f02_content_map, f03_extract, f04_clean, f05_nepali, f06_chunk, f07_embed, f08_word_index, f12_checks
 
 log = logging.getLogger(__name__)
 
-STAGES = ("f01", "f02", "f03", "f04", "f05", "f06", "f07", "f08")
+STAGES = ("f01", "f02", "f03", "f04", "f05", "f06", "f07", "f08", "f12")
 
 
 @dataclass
@@ -94,6 +94,9 @@ def _run_stages(ctx: RunContext, source: DataSource, outputs: dict[str, Any], un
     if until == "f07":
         return
     f08_word_index.run(ctx, outputs["snapshot"], outputs["items"], outputs["passages"])
+    if until == "f08":
+        return
+    f12_checks.run(ctx, outputs["snapshot"], outputs["items"], embedder)
 
 
 def run_build(settings: Settings, scope: str, source: DataSource | None = None, until: str | None = None,

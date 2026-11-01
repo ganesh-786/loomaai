@@ -11,7 +11,7 @@ import re
 
 import numpy as np
 
-_WORD = re.compile(r"[\wऀ-ॿ]+")
+_WORD = re.compile(r"[\w\u0900-\u097F]+")
 
 
 class FakeEmbedder:
