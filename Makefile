@@ -104,7 +104,7 @@ PIPELINE_DOCKER = docker run --rm --network loomanet --memory 2g \
 	-v $(CURDIR)/data:/data -v $(PIPELINE_CONTENT_DIR):/content:ro \
 	-e PIPELINE_GIT_SHA=$(shell git rev-parse --short HEAD)
 
-.PHONY: pipeline-image pipeline-test pipeline-info pipeline-build
+.PHONY: pipeline-image pipeline-test pipeline-info pipeline-build pipeline-model
 
 pipeline-image:
 	@mkdir -p data
@@ -119,3 +119,7 @@ pipeline-info: pipeline-image
 # Runs the build stages for SCOPE (pilot or all). Reads looma-db read only; writes data/runs/<run_id>/.
 pipeline-build: pipeline-image
 	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) build --scope $(SCOPE)
+
+# Downloads the pinned embedder (network, about 500 MB once) and writes the int8 model into data/models/.
+pipeline-model: pipeline-image
+	$(PIPELINE_DOCKER) -e HF_HUB_OFFLINE=0 $(PIPELINE_IMAGE) prepare-model

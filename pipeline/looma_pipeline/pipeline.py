@@ -14,15 +14,16 @@ from typing import Any
 
 from looma_pipeline.chunking import HfTokenCounter, TokenCounter
 from looma_pipeline.config import ConfigError, Settings
+from looma_pipeline.embedder import OnnxEmbedder
 from looma_pipeline.logs import add_file_log
 from looma_pipeline.mongo_readonly import connect_readonly
 from looma_pipeline.runctx import RunContext
 from looma_pipeline.source import DataSource, MongoSource
-from looma_pipeline.stages import f01_snapshot, f02_content_map, f03_extract, f04_clean, f05_nepali, f06_chunk
+from looma_pipeline.stages import f01_snapshot, f02_content_map, f03_extract, f04_clean, f05_nepali, f06_chunk, f07_embed
 
 log = logging.getLogger(__name__)
 
-STAGES = ("f01", "f02", "f03", "f04", "f05", "f06")
+STAGES = ("f01", "f02", "f03", "f04", "f05", "f06", "f07")
 
 
 @dataclass
@@ -49,8 +50,23 @@ def model_token_counter(settings: Settings) -> HfTokenCounter:
     return HfTokenCounter(path)
 
 
+def model_embedders(settings: Settings) -> tuple[OnnxEmbedder, OnnxEmbedder | None]:
+    """The int8 embedder, plus the full-size one when present (for the int8 agreement check).
+
+    Raises:
+        ConfigError: if the model has not been prepared yet.
+    """
+    try:
+        int8 = OnnxEmbedder.from_settings(settings)
+    except FileNotFoundError as exc:
+        raise ConfigError(str(exc)) from exc
+    full_path = settings.model_dir / "model.fp32.onnx"
+    full = OnnxEmbedder.from_settings(settings, model_file=full_path.name) if full_path.is_file() else None
+    return int8, full
+
+
 def _run_stages(ctx: RunContext, source: DataSource, outputs: dict[str, Any], until: str | None,
-                counter: TokenCounter | None) -> None:
+                counter: TokenCounter | None, embedder: f07_embed.Embedder | None) -> None:
     """Run the stages in order, storing each result in `outputs`; stop after `until`."""
     outputs["snapshot"] = f01_snapshot.run(ctx, source)
     if until == "f01":
@@ -69,10 +85,17 @@ def _run_stages(ctx: RunContext, source: DataSource, outputs: dict[str, Any], un
     if until == "f05":
         return
     outputs["passages"] = f06_chunk.run(ctx, outputs["pieces"], counter or model_token_counter(ctx.settings))
+    if until == "f06":
+        return
+    full_model = None
+    if embedder is None:
+        embedder, full_model = model_embedders(ctx.settings)
+    outputs["vectors"] = f07_embed.run(ctx, outputs["passages"], embedder, full_model)
 
 
 def run_build(settings: Settings, scope: str, source: DataSource | None = None, until: str | None = None,
-              run_id: str | None = None, counter: TokenCounter | None = None) -> BuildResult:
+              run_id: str | None = None, counter: TokenCounter | None = None,
+              embedder: f07_embed.Embedder | None = None) -> BuildResult:
     """Run the stages for `scope` up to and including `until` (default: all stages).
 
     Raises:
@@ -86,7 +109,7 @@ def run_build(settings: Settings, scope: str, source: DataSource | None = None, 
     try:
         source = source or open_mongo_source(settings)
         result = BuildResult(run_id=ctx.run_id, run_dir=ctx.run_dir, seconds=0.0)
-        _run_stages(ctx, source, result.outputs, until, counter)
+        _run_stages(ctx, source, result.outputs, until, counter, embedder)
         result.seconds = round(time.perf_counter() - started, 2)
         log.info("build finished", extra={"run_id": ctx.run_id, "scope": scope, "seconds": result.seconds,
                                           "stages": list(ctx.stage_seconds)})

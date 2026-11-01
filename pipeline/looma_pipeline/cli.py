@@ -1,8 +1,9 @@
 """Command-line interface: `python -m looma_pipeline <command>`.
 
 Commands:
-    info    print the effective settings (no secrets)
-    build   run the stages for a scope (reads MongoDB read only; writes data/runs/<run_id>/)
+    info           print the effective settings (no secrets)
+    build          run the stages for a scope (reads MongoDB read only; writes data/runs/<run_id>/)
+    prepare-model  download the pinned embedder and write its int8 model (network, once)
 
 Each command reads settings from environment variables (docs/configuration.md) and exits non-zero on failure.
 """
@@ -16,6 +17,7 @@ import sys
 
 from looma_pipeline import __version__
 from looma_pipeline.config import SCOPES, ConfigError, Settings
+from looma_pipeline.embedder import prepare_model
 from looma_pipeline.logs import setup_logging
 from looma_pipeline.pipeline import STAGES, run_build
 
@@ -37,6 +39,12 @@ def _cmd_build(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_prepare_model(settings: Settings, _args: argparse.Namespace) -> int:
+    info = prepare_model(settings)
+    print(json.dumps({"model_dir": str(settings.model_dir), "model_key": info.key, "files": info.files}, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="looma_pipeline", description="Build-plane pipeline F1-F13 for Looma AI.")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -46,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--scope", choices=SCOPES, default="pilot")
     build.add_argument("--until", choices=STAGES, help="stop after this stage (default: run all)")
     build.set_defaults(handler=_cmd_build)
+    commands.add_parser("prepare-model", help="download the pinned embedder and write the int8 model"
+                        ).set_defaults(handler=_cmd_prepare_model)
     return parser
 
 
