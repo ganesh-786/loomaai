@@ -17,11 +17,11 @@ from looma_pipeline.logs import add_file_log
 from looma_pipeline.mongo_readonly import connect_readonly
 from looma_pipeline.runctx import RunContext
 from looma_pipeline.source import DataSource, MongoSource
-from looma_pipeline.stages import f01_snapshot
+from looma_pipeline.stages import f01_snapshot, f02_content_map
 
 log = logging.getLogger(__name__)
 
-STAGES = ("f01",)
+STAGES = ("f01", "f02")
 
 
 @dataclass
@@ -34,6 +34,14 @@ class BuildResult:
 
 def open_mongo_source(settings: Settings) -> MongoSource:
     return MongoSource(connect_readonly(settings.mongo_uri, settings.mongo_db))
+
+
+def _run_stages(ctx: RunContext, source: DataSource, outputs: dict[str, Any], until: str | None) -> None:
+    """Run the stages in order, storing each result in `outputs`; stop after `until`."""
+    outputs["snapshot"] = f01_snapshot.run(ctx, source)
+    if until == "f01":
+        return
+    outputs["content_map"] = f02_content_map.run(ctx, outputs["snapshot"])
 
 
 def run_build(settings: Settings, scope: str, source: DataSource | None = None, until: str | None = None,
@@ -51,11 +59,10 @@ def run_build(settings: Settings, scope: str, source: DataSource | None = None, 
     try:
         source = source or open_mongo_source(settings)
         result = BuildResult(run_id=ctx.run_id, run_dir=ctx.run_dir, seconds=0.0)
-        snapshot = f01_snapshot.run(ctx, source)
-        result.outputs["snapshot"] = snapshot
+        _run_stages(ctx, source, result.outputs, until)
         result.seconds = round(time.perf_counter() - started, 2)
         log.info("build finished", extra={"run_id": ctx.run_id, "scope": scope, "seconds": result.seconds,
-                                          "activities_in_scope": snapshot.counts["activities_in_scope"]})
+                                          "stages": list(ctx.stage_seconds)})
         return result
     finally:
         logging.getLogger().removeHandler(file_log)
