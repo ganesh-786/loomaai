@@ -1,5 +1,24 @@
 # Looma AI
 
+Last verified: 2026-11-01 at 865883ff for the "Build pipeline" section; the prototype sections below are from
+upstream `de3b4b9` and were not re-run.
+
+## Build pipeline (F1-F13)
+
+`pipeline/` turns Looma's MongoDB data into a signed index bundle for search by meaning. It only reads MongoDB and
+writes under `data/`. It runs in its own Docker image and is separate from the prototype in `appai/`.
+
+```bash
+make pipeline-image
+make pipeline-model             # downloads the pinned embedder once (network)
+make pipeline-test
+make pipeline-e2e SCOPE=pilot   # builds twice, verifies, tampers copies, decides gates G1-G10
+```
+
+Start with [docs/architecture.md](docs/architecture.md). Setup and every make target:
+[docs/install-and-run.md](docs/install-and-run.md). Settings: [docs/configuration.md](docs/configuration.md).
+Tests and latest results: [docs/testing.md](docs/testing.md).
+
 ## Setup
 
 1. The Docker containers for Looma-II named "loomaweb" and "loomadb" must be running when using "loomaai". Clone [Looma-II](https://github.com/looma/Looma-II) and follow the setup instructions in README for Looma-II repository

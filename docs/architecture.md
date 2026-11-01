@@ -4,7 +4,7 @@ For: developers joining the project and reviewers of design changes. Covers what
 works under, how its parts fit, and why. This version describes the existing prototype and the new build pipeline
 (stages F1 to F13) added on branch `feat/p5-02-e2e-build-pipeline`.
 
-Last verified: 2026-11-01 at feat/p5-02-e2e-build-pipeline (design written before the code; updated after the end-to-end run)
+Last verified: 2026-11-01 at 865883ff (design written first, then checked against the code and the end-to-end run)
 
 ## 1. Goals and scope
 
@@ -38,11 +38,11 @@ Quality goals, in priority order:
 
 | Constraint | Source |
 |---|---|
-| MongoDB belongs to Looma-II (`looma-db` on network `loomanet`). This repo is a client and must not write curated fields. | `.claude/rules/data-safety.md`, Looma-II `.claude/rules/cross-repo.md` |
+| MongoDB belongs to Looma-II (`looma-db` on network `loomanet`). This repo is a client and must not write curated fields. | the project's data-safety rule and the Looma-II interface contract |
 | The Looma Box is an ODROID-C4: arm64, 4 GB RAM, offline in class. | Skip; Hardkernel product page |
 | Languages: English, Nepali (Devanagari), romanized Nepali. Many Nepali fields are code-mixed. | measured 2026-10-28 on lesson slides |
 | No PyTorch on the serve plane; CPU-only ONNX Runtime. | `rag-engineering` skill, section 10 |
-| The embedding model is a provisional choice until the embedder experiment (EXP-002) and Skip decide. | `.claude/rules/experiments-and-decisions.md` |
+| The embedding model is a provisional choice until the embedder experiment (EXP-002) and Skip decide. | the project's experiments-and-decisions rule |
 
 ## 3. Context (C4 level 1)
 
@@ -91,17 +91,17 @@ Pipeline building blocks:
 
 | Stage | Module | Input | Output |
 |---|---|---|---|
-| F1 snapshot | `stages/f01_snapshot.py` | MongoDB (read only) | in-scope raw records, snapshot id and hash, curated-field checksum |
-| F2 content map | `stages/f02_content_map.py` | raw records, content folder | for each item: the file Looma would open, or why there is none |
-| F3 extract | `stages/f03_extract.py` + `extractors/` | raw records, content map | text pieces with page or time |
-| F4 clean | `stages/f04_clean.py` | raw records, text pieces | normalized items (grades, chapter ids, language, CEHRD flag) |
-| F5 Nepali check | `stages/f05_nepali.py` | text pieces | language by script; Preeti conversion for legacy-font files |
-| F6 chunk | `stages/f06_chunk.py` | text pieces | small passages with stable ids `<item>:<lang>:<n>` |
-| F7 embed | `stages/f07_embed.py` + `embedder.py` | passages, model files | int8 vectors; cache statistics; int8 vs full-size agreement |
-| F8 word index | `stages/f08_word_index.py` | items, passages, dictionary | SQLite file with items, passages, FTS5 index, dictionary |
-| F9 suggestions | `stages/f09_suggestions.py` | staged bundle | chapter → resource proposals (JSONL, never written to MongoDB) |
-| F12 checks | `stages/f12_checks.py` + `search.py` | staged bundle | self-test queries, known-item and filter results, comparison with today's search |
-| F13 pack and sign | `stages/f13_bundle.py` + `bundle.py` | staged bundle, model files, signing key | `data/bundles/<bundle>/` with manifest, checksums and signature |
+| F1 snapshot | `pipeline/looma_pipeline/stages/f01_snapshot.py` | MongoDB (read only) | in-scope raw records, snapshot id and hash, curated-field checksum |
+| F2 content map | `pipeline/looma_pipeline/stages/f02_content_map.py` | raw records, content folder | for each item: the file Looma would open, or why there is none |
+| F3 extract | `pipeline/looma_pipeline/stages/f03_extract.py` + `pipeline/looma_pipeline/extractors/` | raw records, content map | text pieces with page or time |
+| F4 clean | `pipeline/looma_pipeline/stages/f04_clean.py` | raw records, text pieces | normalized items (grades, chapter ids, language, CEHRD flag) |
+| F5 Nepali check | `pipeline/looma_pipeline/stages/f05_nepali.py` | text pieces | language by script; Preeti conversion for legacy-font files |
+| F6 chunk | `pipeline/looma_pipeline/stages/f06_chunk.py` | text pieces | small passages with stable ids `<item>:<lang>:<n>` |
+| F7 embed | `pipeline/looma_pipeline/stages/f07_embed.py` + `pipeline/looma_pipeline/embedder.py` | passages, model files | int8 vectors; cache statistics; int8 vs full-size agreement |
+| F8 word index | `pipeline/looma_pipeline/stages/f08_word_index.py` | items, passages, dictionary | SQLite file with items, passages, FTS5 index, dictionary |
+| F9 suggestions | `pipeline/looma_pipeline/stages/f09_suggestions.py` | staged bundle | chapter → resource proposals (JSONL, never written to MongoDB) |
+| F12 checks | `pipeline/looma_pipeline/stages/f12_checks.py` + `pipeline/looma_pipeline/search.py` | staged bundle | self-test queries, known-item and filter results, comparison with today's search |
+| F13 pack and sign | `pipeline/looma_pipeline/stages/f13_bundle.py` + `pipeline/looma_pipeline/bundle.py` | staged bundle, model files, signing key | `data/bundles/<bundle>/` with manifest, checksums and signature |
 
 ## 6. Runtime views
 
@@ -136,14 +136,14 @@ user and has a memory limit.
 
 ## 8. Cross-cutting concepts
 
-- **Data safety:** MongoDB is read through `mongo_readonly.py`, which exposes only read methods and rejects
+- **Data safety:** MongoDB is read through `pipeline/looma_pipeline/mongo_readonly.py`, which exposes only read methods and rejects
   aggregation stages that write (`$out`, `$merge`). F1 records a checksum of curated fields; the end-to-end test
   compares it before and after.
 - **Provenance:** every run has a `run_id`; manifests record the snapshot hash, model revision and file hashes, the
   chunker settings and the code version.
 - **Bilingual text:** text is NFC-normalized and stripped of zero-width joiners and byte-order marks. Language is
   decided by the share of Devanagari letters, not by the field it came from.
-- **Configuration:** environment variables with defaults, read once in `config.py` (see `configuration.md`).
+- **Configuration:** environment variables with defaults, read once in `pipeline/looma_pipeline/config.py` (see [configuration.md](configuration.md)).
 - **Logging and errors:** JSON log lines; a stage that cannot continue raises a clear error; per-item failures are
   counted in the stage report, never silently dropped.
 - **Security:** no secrets in the image; the signing key stays in `data/keys/` (ignored by Git); the container runs
@@ -162,7 +162,7 @@ No ADR is accepted yet. Provisional choices, each to be confirmed by an experime
 ## 10. Quality requirements
 
 The end-to-end check (`make pipeline-e2e`) decides whether the pipeline works. The gates were fixed before the first
-run; results are in `testing.md` and the experiment record.
+run; results are in [testing.md](testing.md) and the experiment record.
 
 | Gate | Requirement |
 |---|---|
@@ -187,7 +187,7 @@ These gates show the pipeline is correct, safe and repeatable. They do not measu
 | File extractors are not validated on real Looma content | text quality unknown for PDFs, captions, HTML | rerun F3 to F5 when content arrives (open question S1) |
 | The Preeti converter (`npttf2utf/`) is GPL-3.0 | licensing question for redistribution | recorded for Skip; it is used only on the build plane |
 | Debian packages in the image (Tesseract, fonts) are not version-pinned | rebuilds can change OCR output | pinned base image digest; pin packages before release |
-| Grade bands are provisional (age rule is open question S7) | filters may change | grade logic is isolated in `grades.py` |
+| Grade bands are provisional (age rule is open question S7) | filters may change | grade logic is isolated in `pipeline/looma_pipeline/grades.py` |
 | No stage-level resume | a failed run restarts from F1 | reruns are cheap because embeddings are cached |
 
 ## 12. Glossary
@@ -202,7 +202,7 @@ These gates show the pipeline is correct, safe and repeatable. They do not measu
 | `cl_lo` / `cl_hi` | curated lowest and highest grade for an activity |
 | `key1`–`key4` | taxonomy levels; `key1` is the subject |
 | `src` | content source (khan, wikipedia, CEHRD, …) |
-| CEHRD | items under `../content/CEHRD/`, shown only on the CEHRD server |
+| CEHRD | items whose file path starts with `../content/CEHRD`, shown only on the CEHRD server |
 | EP | ePaath activity |
 | Looma Box | the offline school computer (ODROID-C4) |
 | Build plane / serve plane | where bundles are made (office) / used (Box) |
