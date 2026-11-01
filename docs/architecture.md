@@ -4,7 +4,7 @@ For: developers joining the project and reviewers of design changes. Covers what
 works under, how its parts fit, and why. This version describes the existing prototype and the new build pipeline
 (stages F1 to F13) added on branch `feat/p5-02-e2e-build-pipeline`.
 
-Last verified: 2026-11-01 at b1b63e54 (design written first, then checked against the code and the end-to-end runs)
+Last verified: 2026-11-01 at 98f8a807 (design written first, then checked against the code and the end-to-end runs)
 
 ## 1. Goals and scope
 
@@ -98,7 +98,7 @@ Pipeline building blocks:
 | F5 Nepali check | `pipeline/looma_pipeline/stages/f05_nepali.py` | text pieces | language by script; Preeti conversion for legacy-font files |
 | F6 chunk | `pipeline/looma_pipeline/stages/f06_chunk.py` | text pieces | small passages with stable ids `<item>:<lang>:<n>` |
 | F7 embed | `pipeline/looma_pipeline/stages/f07_embed.py` + `pipeline/looma_pipeline/embedder.py` | passages, model files | int8 vectors; cache statistics; int8 vs full-size agreement |
-| F8 word index | `pipeline/looma_pipeline/stages/f08_word_index.py` | items, passages, dictionary | SQLite file with items, passages, FTS5 index, dictionary |
+| F8 word index | `pipeline/looma_pipeline/stages/f08_word_index.py` + `pipeline/looma_pipeline/spelling.py` | items, passages, dictionary | SQLite file with items, passages, FTS5 index, dictionary, spelling vocabulary and its symmetric-delete index |
 | F9 suggestions | `pipeline/looma_pipeline/stages/f09_suggestions.py` | staged bundle | chapter → resource proposals (JSONL, never written to MongoDB) |
 | F12 checks | `pipeline/looma_pipeline/stages/f12_checks.py` + `pipeline/looma_pipeline/search.py` | staged bundle | self-test queries, known-item and filter results, comparison with today's search |
 | F13 pack and sign | `pipeline/looma_pipeline/stages/f13_bundle.py` + `pipeline/looma_pipeline/bundle.py` | staged bundle, model files, signing key | `data/bundles/<bundle>/` with manifest, checksums and signature |
@@ -111,8 +111,10 @@ Pipeline building blocks:
 3. F2 to F8 build the staged bundle in `data/runs/<run_id>/staging/`.
 4. F12 opens the staged bundle with the reference search and runs the checks.
    If a check fails, the run stops with exit code 1 and no bundle is written.
-5. F13 copies the staged files and model into a temporary folder, writes the manifest and `SHA256SUMS`, signs it,
-   and renames the folder into `data/bundles/` in one step.
+5. F13 puts the staged files and model into a temporary folder, writes the manifest and `SHA256SUMS`, signs it,
+   and renames the folder into `data/bundles/` in one step. Files are hard-linked, not copied, when the run folder,
+   the model and the bundle share a filesystem (they do under `data/`). That is safe because no pipeline file is
+   ever rewritten in place: writes go to a temporary file renamed over the target (`pipeline/looma_pipeline/fsutil.py`).
 6. The run ends with one summary line: run id, counts, duration, bundle path.
 
 ### Verify
@@ -130,6 +132,13 @@ Restricting FTS5 inside SQL (`rowid IN (...)`) was tried first and rejected: SQL
 allowed row, about 3 s per query at 40,000 passages. Skipping gives the same lists, because FTS5 ranks with
 whole-index statistics; measured at 12-19 ms per query on the full scope (experiment record, section 9).
 
+Before both lists, spelling correction (`pipeline/looma_pipeline/spelling.py`) replaces each unknown query word,
+one in neither the index nor the dictionary, with the nearest index word, keeping its capitalization. The meaning
+search then embeds the corrected query and the word search looks for both wordings. Correctly spelled queries are
+never changed, and real words typed by mistake ("plan" for "plant") are left alone; the evidence is in
+[the typo tolerance experiment](experiments/2026-11-01-typo-tolerance.md). F9 searches chapter titles exactly as
+written. Bundle schema 1.1 adds the spelling tables; a 1.1 reader treats a 1.0 bundle as having no correction.
+
 ## 7. Deployment
 
 | Where | What runs | Notes |
@@ -141,6 +150,11 @@ Volumes: `data/` is mounted at `/data`, the content folder read-only at `/conten
 user and has a 2 GiB memory limit. Measured peaks: 1,592 MB for a full-scope build and 1,666 MB for a full-scope
 e2e run, of which 1,176 MB are the int8 and full-size model sessions loaded together in F7. The full-size model
 serves only F7's int8 agreement report and is released straight after.
+
+Disk on the build machine: a full-scope build adds about 92 MB (run reports plus the new index; the model is
+shared by hard link) and a full-scope e2e run about 183 MB; the e2e run deletes its tampered copies. Old outputs are
+removed with `make pipeline-clean` (a dry run unless `APPLY=1`; `pipeline/looma_pipeline/retention.py`), which keeps
+the newest bundles and runs of each kind and never touches models, the embedding cache or keys.
 
 ## 8. Cross-cutting concepts
 

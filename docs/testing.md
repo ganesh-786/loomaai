@@ -3,7 +3,7 @@
 For: developers changing the build pipeline, and reviewers deciding whether a change can ship. Covers how to run each
 kind of check and the latest results.
 
-Last verified: 2026-11-01 at b1b63e54
+Last verified: 2026-11-01 at 98f8a807
 
 ## Kinds of checks
 
@@ -12,7 +12,8 @@ Last verified: 2026-11-01 at b1b63e54
 | Unit tests | extraction, OCR, captions, cleaning, grades, chunking, ids, FTS5 tokenizer, search filters, signing, tampering | `make pipeline-test` | laptop | nothing external; tests marked `mongo` and `model` skip themselves when unavailable |
 | Integration (MongoDB, read only) | F1 on the real database with an unchanged curated checksum; the FTS5 tokenizer on every real lesson slide | `make pipeline-test` | laptop with Looma-II up | `looma-db` |
 | Integration (model) | real embedder: 384 dims, normalized, English matches its Nepali translation, batch-independence | `make pipeline-test` | laptop | `make pipeline-model` |
-| End to end, gates G1-G10 | two builds, verification, two tampered copies, the tests, today's search side by side | `make pipeline-e2e SCOPE=pilot` (57 s) or `SCOPE=all` (4 min 12 s) | laptop with Looma-II up | the model |
+| End to end, gates G1-G10 | two builds, verification, two tampered copies, the tests, today's search side by side | `make pipeline-e2e SCOPE=pilot` (about 1 min) or `SCOPE=all` (about 5 min) | laptop with Looma-II up | the model |
+| Typo tolerance, gates T1-T3 and T5 | synthetic English and Nepali typos of G6 titles, hand-made typo pairs (`pipeline/eval/typo_pairs.jsonl`), clean queries, latency with spelling on and off | `make pipeline-eval-typos BUNDLE=<name>` (about 1 min on the full scope) | laptop | a bundle with schema 1.1 |
 | Retrieval quality judged by people | Recall@10 / nDCG@10 against today's search on the golden question set | not built yet | laptop | golden-set version |
 | Box measurements | latency, memory, disk on arm64 | not built yet | ODROID-C4 | a Box |
 
@@ -20,23 +21,28 @@ Last verified: 2026-11-01 at b1b63e54
 
 | Check | Date | Commit | Result | Report |
 |---|---|---|---|---|
-| `make pipeline-test` | 2026-11-01 | b1b63e54 | 198 passed, 0 skipped (model and MongoDB available) | console |
-| `make pipeline-e2e SCOPE=pilot` | 2026-11-01 | b1b63e54 | all decided gates pass (G1-G7, G9); G8 and G10 recorded | [experiment record](experiments/2026-11-01-e2e-build-pipeline.md), section 9 |
-| `make pipeline-e2e SCOPE=all` | 2026-11-01 | b1b63e54 | all decided gates pass (G1-G7, G9); G8 and G10 recorded | [experiment record](experiments/2026-11-01-e2e-build-pipeline.md), section 9 |
+| `make pipeline-test` | 2026-11-01 | 98f8a807 | 228 passed, 0 skipped (model and MongoDB available) | console |
+| `make pipeline-e2e SCOPE=pilot` | 2026-11-01 | 98f8a807 | all decided gates pass (G1-G7, G9); G8 and G10 recorded | `data/runs/e2e-20261101T141550Z/` (not in Git) |
+| `make pipeline-e2e SCOPE=all` | 2026-11-01 | 98f8a807 | all decided gates pass (G1-G7, G9); G8 and G10 recorded | `data/runs/e2e-20261101T141011Z/` (not in Git) |
+| `make pipeline-eval-typos` | 2026-11-01 | 22e028d1 | T1, T2, T3 and T5 pass on the full scope | [typo tolerance experiment](experiments/2026-11-01-typo-tolerance.md) |
 
 Gate results of those runs (dev machine, not Box numbers):
 
 | Gate | Pilot (1,034 items, 1,930 passages) | All (23,681 items, 40,212 passages) |
 |---|---|---|
 | G1 | curated-field checksum identical before and after (`8e58fba1...`) | same |
-| G2 | 11 stage reports ok; one build 18.9 s | 11 stage reports ok; one build 117.7 s |
+| G2 | 11 stage reports ok; one build 25.3 s | 11 stage reports ok; one build 141.0 s |
 | G3 | verify ok; one changed byte refused at `checksums`; a re-signed bundle for another model refused at `model expected by the reader` | same |
-| G4 | same content hash on the second build (`28cc7d6e...`); 0 passages re-embedded | same (`459c5174...`); 0 re-embedded |
+| G4 | same content hash on the second build (`b2dda6e7...`); 0 passages re-embedded | same (`2bddd48c...`); 0 re-embedded |
 | G5 | self-test after loading 20/20 | 20/20 |
 | G6 | English titles 200/200, Nepali titles 200/200, 0 CEHRD-only results | English 199/200, Nepali 200/200, 0 CEHRD-only |
 | G7 | 140/140 chapters return results, 0 outside their chapter | 1,645/1,645, 0 outside |
-| G9 | 198 passed | 198 passed |
-| G10 | search p50 9.0 ms, p95 24.1 ms; bundle 140 MB; peak RSS 1,594 MB | search p50 15.4 ms, p95 39.1 ms; bundle 176 MB; peak RSS 1,666 MB |
+| G9 | 228 passed | 228 passed |
+| G10 | search p50 12.6 ms, p95 24.3 ms; bundle 143 MB; peak RSS 1,593 MB | search p50 21.8 ms, p95 53.5 ms; bundle 191 MB; peak RSS 1,667 MB |
+
+Search times vary between runs on this laptop by more than the cost of spelling correction: the typo evaluation,
+which times the same 848 queries with correction on and off, measured +2.5 ms at p95. Content hashes changed at
+`22e028d1` because they now cover the spelling vocabulary.
 
 Every stage report (`data/runs/<run_id>/<stage>.json`) records `status` (`ok`, `failed` or `interrupted`) and
 `peak_rss_mb`, the process's peak memory so far.
@@ -54,5 +60,8 @@ Every stage report (`data/runs/<run_id>/<stage>.json`) records `status` (`ok`, `
   them.
 - Near-identical numbered titles ("Old Nepal 00094" among hundreds of "Old Nepal" photos) can miss the top 10: the
   model scores them almost alike and RRF favours items found by both lists. A ranking change needs the golden set.
-- Memory headroom: the full-scope e2e run peaks at 1,666 MB of the container's 2 GiB. Real textbook text will add
+- Memory headroom: the full-scope e2e run peaks at 1,667 MB of the container's 2 GiB. Real textbook text will add
   passages; watch `peak_rss_mb`.
+- Spelling: real words typed by mistake ("plan" for "plant") are not corrected, and words one edit from two index
+  words can be corrected to the wrong one ("hart" became "part"). The hand-made typo pairs were written by the
+  developer and the synthetic typos are random edits; real student queries and a Nepali speaker's review are needed.

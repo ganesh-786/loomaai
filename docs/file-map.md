@@ -2,7 +2,7 @@
 
 For: developers looking for where something lives or what a file does. Covers every tracked file.
 
-Last verified: 2026-11-01 at 865883ff
+Last verified: 2026-11-01 at 98f8a807
 
 ## Overview
 ```
@@ -44,7 +44,7 @@ Makefile      prototype targets plus pipeline-* targets
 | `pipeline/pytest.ini` | test settings and markers (`mongo`, `model`) | `make pipeline-test` | n/a | n/a |
 | `pipeline/looma_pipeline/__init__.py` | package version, bundle schema version | import | n/a | n/a |
 | `pipeline/looma_pipeline/__main__.py` | `python -m looma_pipeline` entry point | CLI | n/a | n/a |
-| `pipeline/looma_pipeline/cli.py` | commands: info, prepare-model, keygen, build, verify, search, e2e | CLI | env vars | depends on the command |
+| `pipeline/looma_pipeline/cli.py` | commands: info, prepare-model, keygen, build, verify, search, e2e, eval-typos, clean | CLI | env vars | depends on the command |
 | `pipeline/looma_pipeline/config.py` | all settings, read once from env vars and validated | import | env vars | none |
 | `pipeline/looma_pipeline/logs.py` | JSON-lines logging; `run.log` per run | import | n/a | stderr, `data/runs/<run_id>/run.log` |
 | `pipeline/looma_pipeline/runctx.py` | run ids, run folders, stage reports | import | n/a | `data/runs/<run_id>/*.json` |
@@ -64,10 +64,15 @@ Makefile      prototype targets plus pipeline-* targets
 | `pipeline/looma_pipeline/embedding_cache.py` | vectors cached by model and passage text | import | cache file | `data/cache/embeddings.sqlite` |
 | `pipeline/looma_pipeline/word_index.py` | SQLite schema, FTS5 Devanagari tokenizer, dictionary | import | n/a | the bundle's `meta/chunks.db` |
 | `pipeline/looma_pipeline/query_terms.py` | query terms, safe FTS5 expressions, dictionary expansion | import | `chunks.db` | none |
-| `pipeline/looma_pipeline/search.py` | reference hybrid search with filters before the cut | import, `search` | a bundle | none |
+| `pipeline/looma_pipeline/search.py` | reference hybrid search with filters before the cut and spelling correction first | import, `search` | a bundle | none |
+| `pipeline/looma_pipeline/spelling.py` | spelling vocabulary and symmetric-delete index (built in F8); corrects unknown query words | import | the bundle's SQLite file | F8 writes two tables |
+| `pipeline/looma_pipeline/eval_typos.py` | typo tolerance evaluation, gates T1, T2, T3 and T5 | `eval-typos` | a bundle, `pipeline/eval/typo_pairs.jsonl` | `data/runs/eval-typos-<time>/` |
+| `pipeline/looma_pipeline/fsutil.py` | hard link or copy, and atomic writes, for files that are never changed in place | import | files | creates files |
+| `pipeline/looma_pipeline/retention.py` | which old bundles and run folders can go | `clean` | `data/bundles/`, `data/runs/` | with `--apply`, deletes the planned folders |
 | `pipeline/looma_pipeline/baseline.py` | today's Looma search, for comparison | import | `looma-web` over HTTP | none |
 | `pipeline/looma_pipeline/bundle.py` | keys, content hash, checksums, signature, verification | import | a bundle, keys | `data/keys/`, bundle files |
 | `pipeline/looma_pipeline/verify.py` | full verification including the self-test with the bundle's own model | `verify` | a bundle | none |
 | `pipeline/looma_pipeline/e2e.py` | end-to-end gate run G1-G10 | `e2e` | MongoDB, model, `looma-web` | two bundles, `data/runs/e2e-<time>/` |
 | `pipeline/looma_pipeline/stages/` | one module per stage, `pipeline/looma_pipeline/stages/f01_snapshot.py` to `pipeline/looma_pipeline/stages/f13_bundle.py` (F1-F9, F12, F13) | called by `pipeline/looma_pipeline/pipeline.py` | see [architecture.md](architecture.md), section 5 | run-folder reports; F13 writes the bundle |
+| `pipeline/eval/typo_pairs.jsonl` | hand-made typo and correct query pairs, and correctly spelled queries, for the typo evaluation | read by `eval-typos` | n/a | none |
 | `pipeline/tests/` | pytest tests, test data (`pipeline/tests/looma_fixture.py`), PDF generators (`pipeline/tests/pdf_fixtures.py`), a stand-in embedder (`pipeline/tests/fake_embedder.py`) | `make pipeline-test` | temp folders; MongoDB and model when available | temp folders only |

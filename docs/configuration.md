@@ -3,7 +3,7 @@
 For: anyone running loomaai or its build pipeline. Covers every environment variable, port, volume and model file,
 with its default and the code that reads it.
 
-Last verified: 2026-11-01 at 865883ff
+Last verified: 2026-11-01 at 98f8a807
 
 ## Environment variables: build pipeline
 
@@ -43,6 +43,8 @@ Read once by `pipeline/looma_pipeline/config.py`. Defaults work inside the `loom
 | `Q` | none | query for `make pipeline-search` |
 | `PIPELINE_IMAGE` | `looma-pipeline:dev` | image tag |
 | `PIPELINE_CONTENT_DIR` | `/usr/local/var/www/content` | host content folder mounted read only at `/content` |
+| `KEEP` | `2` | newest bundles and runs of each kind kept by `make pipeline-clean` |
+| `APPLY` | empty | `1` makes `make pipeline-clean` delete; otherwise it only lists |
 
 ## Environment variables: prototype (`appai/`)
 
@@ -74,7 +76,7 @@ copies `.env` into the image, so `.env` must not contain real keys. The pipeline
 
 | Host path | Mounted at | Holds | Size measured |
 |---|---|---|---|
-| `data/` | `/data` (pipeline) | `data/runs/`, `data/cache/embeddings.sqlite`, `data/models/`, `data/bundles/`, `data/keys/` | model 0.6 GB, pilot bundle 134 MB |
+| `data/` | `/data` (pipeline) | `data/runs/`, `data/cache/embeddings.sqlite`, `data/models/`, `data/bundles/`, `data/keys/` | models 0.6 GB (1.1 GB if prepared before `e6da198e`, which copied the download instead of linking it); cache 82 MB; each full-scope build adds about 92 MB, see [install-and-run.md](install-and-run.md) |
 | Looma's content folder | `/content`, read only | PDFs, captions, HTML | empty on the development machine |
 
 ## Models and index bundles
@@ -83,4 +85,4 @@ copies `.env` into the image, so `.env` must not contain real keys. The pipeline
 |---|---|---|---|
 | Embedder (full size) | `data/models/intfloat--multilingual-e5-small/<revision>/model.fp32.onnx` | revision `614241f622f53c4eeff9890bdc4f31cfecc418b3` | 470 MB |
 | Embedder (int8) | same folder, `model.int8.onnx` | the model folder's model_info.json records SHA-256 and quantization | 118 MB |
-| Index bundle | `data/bundles/` (one folder per bundle, named looma-ai-bundle-DATE-SCOPE-rN) | its manifest.json and signed SHA256SUMS | 134 MB for the pilot scope |
+| Index bundle | `data/bundles/` (one folder per bundle, named looma-ai-bundle-DATE-SCOPE-rN) | its manifest.json and signed SHA256SUMS; schema 1.1 (with spelling tables) | 143 MB pilot, 191 MB full scope; on the build machine the model part (130 MB) is a hard link to `data/models/` |

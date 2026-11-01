@@ -3,7 +3,7 @@
 For: a developer setting up loomaai for the first time, or running the build pipeline (F1 to F13). Covers the
 prerequisites, the pipeline commands with what each writes, and every `make` target in the repository.
 
-Last verified: 2026-11-01 at b1b63e54 on a laptop with WSL2 (Linux 6.18), Docker 29.9.2, Compose 5.6.1. The
+Last verified: 2026-11-01 at 98f8a807 on a laptop with WSL2 (Linux 6.18), Docker 29.9.2, Compose 5.6.1. The
 pipeline targets were run; the prototype targets (`appai/`) are described from the Makefile and were not re-run.
 
 ## Prerequisites
@@ -12,8 +12,8 @@ pipeline targets were run; the prototype targets (`appai/`) are described from t
 |---|---|---|
 | Looma-II running (network `loomanet`, container `looma-db`) | local Looma-II stack | `docker ps --filter name=looma-db` |
 | Docker with Compose v2 | Docker 29.9.2 used | `docker compose version` |
-| Free disk | about 1 GB for the image, 0.6 GB for the model, 0.14 GB per pilot bundle, 0.18 GB per full bundle | `df -h .` |
-| Free memory | 2 GiB for the pipeline container (`--memory 2g`); measured peak 1,666 MB | `free -h` |
+| Free disk | about 1 GB for the image, 0.6 GB for the model; each full-scope build adds about 92 MB (see "Disk use") | `df -h .` |
+| Free memory | 2 GiB for the pipeline container (`--memory 2g`); measured peak 1,667 MB | `free -h` |
 | Network, once | to download the embedder from Hugging Face | `make pipeline-model` |
 
 You don't need Python on the host for the pipeline: everything runs inside the `looma-pipeline` image.
@@ -47,23 +47,48 @@ You don't need Python on the host for the pipeline: everything runs inside the `
    make pipeline-verify BUNDLE=looma-ai-bundle-2026.11.01-pilot-r1
    make pipeline-search BUNDLE=looma-ai-bundle-2026.11.01-pilot-r1 Q="how do plants make food"
    ```
-   Check: `verify` prints `"ok": true` and eight passed checks.
+   Check: `verify` prints `"ok": true` and eight passed checks. A misspelled word that is not in Looma's
+   content is corrected before searching; the output then has a `spelling` field with `searched_for` and the
+   changes. The CLI option `--no-spelling` searches exactly as typed.
 
 To run every gate at once (two builds, verification, tampered copies, tests), use `make pipeline-e2e SCOPE=pilot`.
-It took 57 s on the machine above and writes its report to `data/runs/e2e-<time>/e2e-report.md`.
+It took 1 min 9 s on the machine above and writes its report to `data/runs/e2e-<time>/e2e-report.md`.
 
 `SCOPE=all` builds every activity in MongoDB (23,681 items, 40,212 passages). Measured on the machine above:
 
 | Command | Time | Peak memory |
 |---|---|---|
 | `make pipeline-build SCOPE=all`, first time (every passage embedded) | about 6 min, of which 3.6 min embedding | not measured |
-| `make pipeline-build SCOPE=all`, vectors cached | 1 min 58 s | 1,592 MB |
-| `make pipeline-e2e SCOPE=all` | 4 min 12 s | 1,666 MB |
+| `make pipeline-build SCOPE=all`, vectors cached | 2 min 15 s | 1,587 MB |
+| `make pipeline-e2e SCOPE=all` | 4 min 49 s | 1,667 MB |
+| `make pipeline-eval-typos BUNDLE=<full bundle>` | about 1 min | not measured |
 
 The first-time figure is estimated from a build whose F7 embedded 36,124 new passages in 218 s.
 
 To stop a run, press Ctrl+C or run `docker stop <container>`. The stage that was running writes its report with
 status `interrupted`, the command exits with 130 (Ctrl+C) or 143 (`docker stop`), and no bundle is written.
+
+## Disk use and cleanup
+
+Every build keeps its run folder and its bundle, so `data/` grows with each run until you clean it. Measured on
+the machine above:
+
+| What | Disk added | Why |
+|---|---|---|
+| `make pipeline-build SCOPE=all` | about 92 MB | run reports (about 40 MB) and the new index (about 53 MB); the model is shared with `data/models/` by hard link |
+| `make pipeline-e2e SCOPE=all` | about 183 MB | two builds; the tampered copies are deleted at the end |
+| `data/cache/embeddings.sqlite` | grows only with new passage texts | keeps rebuilds fast; never deleted by the clean-up |
+
+List what can go, then delete it:
+```bash
+make pipeline-clean            # dry run: lists old bundles and run folders and the space they hold
+make pipeline-clean APPLY=1    # deletes them
+```
+It keeps the newest `KEEP` (default 2) bundles per scope, the newest `KEEP` runs of each kind and every run that
+built a kept bundle. It never touches `data/models/`, `data/cache/` or `data/keys/`. Check the dry-run list first:
+an experiment record may cite a report inside a folder that would be deleted.
+
+Bundles made before hard links were used (`e6da198e`) each hold their own model copy (about 130 MB).
 
 ## Make targets
 
@@ -78,6 +103,8 @@ status `interrupted`, the command exits with 130 (Ctrl+C) or 143 (`docker stop`)
 | `make pipeline-verify` | verifies `BUNDLE`: signature, checksums, model, content hash, self-test | no | no |
 | `make pipeline-search` | searches `BUNDLE` for `Q` with the reference search | no | no |
 | `make pipeline-e2e` | builds `SCOPE` twice, verifies, tampers copies, runs the tests, decides G1 to G10 | `data/` as for a build, plus `data/runs/e2e-<time>/` | no; HTTP to `looma-web` for the comparison |
+| `make pipeline-eval-typos` | measures typo tolerance on `BUNDLE` and decides gates T1, T2, T3 and T5 | `data/runs/eval-typos-<time>/` | no |
+| `make pipeline-clean` | lists old bundles and run folders (`KEEP`, default 2); deletes them only with `APPLY=1` | deletes in `data/bundles/` and `data/runs/` with `APPLY=1` | no |
 | `make setup-host` | prototype: creates `env/` and installs `requirements.txt` | `env/` | yes |
 | `make build` | prototype: builds the `loomaai` image. **Copies `.env` into the image** | Docker image | yes |
 | `make rmi` | prototype: removes the image and runs `docker system prune -f` (machine-wide) | Docker | no |

@@ -1,6 +1,6 @@
 # Looma AI
 
-Last verified: 2026-11-01 at b1b63e54 for the "Build pipeline" section; the prototype sections below are from
+Last verified: 2026-11-01 at 98f8a807 for the "Build pipeline" section; the prototype sections below are from
 upstream `de3b4b9` and were not re-run.
 
 ## Build pipeline (F1-F13)
@@ -13,6 +13,7 @@ make pipeline-image
 make pipeline-model             # downloads the pinned embedder once (network)
 make pipeline-test
 make pipeline-e2e SCOPE=pilot   # builds twice, verifies, tampers copies, decides gates G1-G10
+make pipeline-clean             # lists old bundles and runs that can go; APPLY=1 deletes them
 ```
 
 Start with [docs/architecture.md](docs/architecture.md). Setup and every make target:
