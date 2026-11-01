@@ -2,6 +2,7 @@
 
 Commands:
     info    print the effective settings (no secrets)
+    build   run the stages for a scope (reads MongoDB read only; writes data/runs/<run_id>/)
 
 Each command reads settings from environment variables (docs/configuration.md) and exits non-zero on failure.
 """
@@ -14,8 +15,9 @@ import logging
 import sys
 
 from looma_pipeline import __version__
-from looma_pipeline.config import ConfigError, Settings
+from looma_pipeline.config import SCOPES, ConfigError, Settings
 from looma_pipeline.logs import setup_logging
+from looma_pipeline.pipeline import STAGES, run_build
 
 log = logging.getLogger(__name__)
 
@@ -25,11 +27,21 @@ def _cmd_info(settings: Settings, _args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_build(settings: Settings, args: argparse.Namespace) -> int:
+    result = run_build(settings, args.scope, until=args.until)
+    print(json.dumps({"run_id": result.run_id, "run_dir": str(result.run_dir), "seconds": result.seconds}))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="looma_pipeline", description="Build-plane pipeline F1-F13 for Looma AI.")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("info", help="print the effective settings").set_defaults(handler=_cmd_info)
+    build = commands.add_parser("build", help="run the build stages for a scope")
+    build.add_argument("--scope", choices=SCOPES, default="pilot")
+    build.add_argument("--until", choices=STAGES, help="stop after this stage (default: run all)")
+    build.set_defaults(handler=_cmd_build)
     return parser
 
 

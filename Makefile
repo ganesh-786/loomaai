@@ -104,7 +104,7 @@ PIPELINE_DOCKER = docker run --rm --network loomanet --memory 2g \
 	-v $(CURDIR)/data:/data -v $(PIPELINE_CONTENT_DIR):/content:ro \
 	-e PIPELINE_GIT_SHA=$(shell git rev-parse --short HEAD)
 
-.PHONY: pipeline-image pipeline-test pipeline-info
+.PHONY: pipeline-image pipeline-test pipeline-info pipeline-build
 
 pipeline-image:
 	@mkdir -p data
@@ -115,3 +115,7 @@ pipeline-test: pipeline-image
 
 pipeline-info: pipeline-image
 	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) info
+
+# Runs the build stages for SCOPE (pilot or all). Reads looma-db read only; writes data/runs/<run_id>/.
+pipeline-build: pipeline-image
+	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) build --scope $(SCOPE)
