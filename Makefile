@@ -105,7 +105,7 @@ PIPELINE_DOCKER = docker run --rm --network loomanet --memory 2g \
 	-e PIPELINE_GIT_SHA=$(shell git rev-parse --short HEAD)
 
 .PHONY: pipeline-image pipeline-test pipeline-info pipeline-build pipeline-model pipeline-keygen \
-	pipeline-verify pipeline-search pipeline-e2e
+	pipeline-verify pipeline-search pipeline-e2e pipeline-eval-typos
 
 pipeline-image:
 	@mkdir -p data
@@ -142,3 +142,8 @@ pipeline-search: pipeline-image
 # End-to-end check of gates G1-G10: builds SCOPE twice, verifies, tampers, runs the tests. Writes data/ only.
 pipeline-e2e: pipeline-image
 	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) e2e --scope $(SCOPE)
+
+# Typo tolerance on a bundle (gates T1, T2, T3, T5): make pipeline-eval-typos BUNDLE=<name>. Writes data/runs/ only.
+pipeline-eval-typos: pipeline-image
+	@test -n "$(BUNDLE)" || { echo "usage: make pipeline-eval-typos BUNDLE=<name>"; exit 2; }
+	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) eval-typos $(BUNDLE)

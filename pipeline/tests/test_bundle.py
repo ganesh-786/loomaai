@@ -117,3 +117,50 @@ def test_a_re_signed_bundle_with_edited_index_rows_is_refused(settings, signed):
     db.close()
     write_checksums_and_sign(copy, load_private_key(settings.signing_key_path))
     assert _failed(_verify(copy, settings)) == "content hash"
+
+
+def test_a_re_signed_bundle_with_edited_spelling_rows_is_refused(settings, signed):
+    copy = signed("spelling")
+    db = sqlite3.connect(copy / "meta" / "chunks.db")
+    assert db.execute("SELECT COUNT(*) FROM spell_words").fetchone()[0] > 0
+    db.execute("UPDATE spell_words SET df = df + 1 WHERE word_id = 0")
+    db.commit()
+    db.close()
+    write_checksums_and_sign(copy, load_private_key(settings.signing_key_path))
+    assert _failed(_verify(copy, settings)) == "content hash"
+
+
+def _without_spelling_tables(copy):
+    db = sqlite3.connect(copy / "meta" / "chunks.db")
+    db.executescript("DROP TABLE spell_words; DROP TABLE spell_deletes; VACUUM;")
+    db.close()
+
+
+def test_removing_the_spelling_tables_is_refused(settings, signed):
+    copy = signed("no-spelling")
+    _without_spelling_tables(copy)
+    write_checksums_and_sign(copy, load_private_key(settings.signing_key_path))
+    assert _failed(_verify(copy, settings)) == "content hash"
+
+
+def test_a_schema_1_0_bundle_still_verifies_and_searches_without_spelling_help(settings, signed):
+    """A bundle built before the spelling tables existed: same major version, so readers must accept it."""
+    from looma_pipeline.bundle import content_hash
+    from looma_pipeline.search import SearchEngine
+
+    copy = signed("schema-1.0")
+    _without_spelling_tables(copy)
+    manifest = json.loads((copy / MANIFEST_FILE).read_text())
+    manifest["schema_version"] = "1.0"
+    manifest["content_hash"] = content_hash(copy, manifest["embedding"]["model_sha256"],
+                                            manifest["embedding"]["tokenizer_sha256"])
+    (copy / MANIFEST_FILE).write_text(json.dumps(manifest))
+    write_checksums_and_sign(copy, load_private_key(settings.signing_key_path))
+    assert _verify(copy, settings).ok
+    engine = SearchEngine(copy, FakeEmbedder())
+    try:
+        assert not engine.speller.available
+        result = engine.respond("Mesurement and unit")
+        assert result.spelling.changes == () and result.hits
+    finally:
+        engine.close()

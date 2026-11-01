@@ -6,8 +6,9 @@ Commands:
     keygen         create the bundle signing key pair in data/keys/ if there is none
     build          run F1-F13 for a scope: reads MongoDB read only, writes data/runs/<run_id>/ and a signed bundle
     verify         check a bundle: signature, checksums, model, content hash, self-test queries
-    search         query a bundle with the reference search
+    search         query a bundle with the reference search (spelling correction on unless --no-spelling)
     e2e            build twice, verify, try tampered copies and decide gates G1-G10
+    eval-typos     measure typo tolerance on a bundle and decide gates T1, T2, T3 and T5
 
 Settings come from environment variables (docs/configuration.md). Exit codes: 0 success, 1 a check or gate
 failed, 2 configuration or input error, 130 stopped with Ctrl+C, 143 stopped with SIGTERM (`docker stop`).
@@ -81,13 +82,36 @@ def _cmd_search(settings: Settings, args: argparse.Namespace) -> int:
     try:
         filters = Filters(types=frozenset(args.type or ()), grade=args.grade, chapter_id=args.chapter,
                           cehrd_server=settings.is_cehrd_server)
-        hits, ms = engine.timed_search(args.query, filters, args.k)
+        hits, spelling, ms = engine.timed_respond(args.query, filters, args.k, spelling=not args.no_spelling)
     finally:
         engine.close()
-    _print({"query": args.query, "ms": round(ms, 1), "hits": [
-        {"item_id": h.item_id, "title": h.title, "ft": h.ft, "score": h.score, "similarity": h.similarity,
-         "page": h.page, "passage": h.passage[:160]} for h in hits]})
+    output: dict = {"query": args.query, "ms": round(ms, 1)}
+    if spelling.changes:
+        output["spelling"] = {"searched_for": spelling.corrected,
+                              "changes": [{"from": c.original, "to": c.replacement} for c in spelling.changes]}
+    output["hits"] = [{"item_id": h.item_id, "title": h.title, "ft": h.ft, "score": h.score,
+                       "similarity": h.similarity, "page": h.page, "passage": h.passage[:160]} for h in hits]
+    _print(output)
     return 0
+
+
+def _cmd_eval_typos(settings: Settings, args: argparse.Namespace) -> int:
+    from looma_pipeline.eval_typos import markdown, run_typo_eval, write_report
+
+    bundle = resolve_bundle(settings, args.bundle)
+    manifest = json.loads((bundle / MANIFEST_FILE).read_text(encoding="utf-8"))
+    engine = SearchEngine(bundle, bundle_embedder(bundle, manifest, settings))
+    try:
+        if not engine.speller.available:
+            log.error("this bundle has no spelling tables", extra={"schema_version": manifest.get("schema_version")})
+            return 2
+        report = run_typo_eval(settings, engine, bundle.name)
+    finally:
+        engine.close()
+    folder = write_report(settings, report)
+    print(markdown(report))
+    print(f"full report: {folder}/report.json")
+    return 0 if report["all_gates_pass"] else 1
 
 
 def _cmd_e2e(settings: Settings, args: argparse.Namespace) -> int:
@@ -129,11 +153,16 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--grade", type=int)
     search.add_argument("--chapter", help="restrict to one chapter id, e.g. 6S01.02")
     search.add_argument("--type", action="append", help="restrict to a file type (repeatable)")
+    search.add_argument("--no-spelling", action="store_true", help="search exactly as typed")
     search.set_defaults(handler=_cmd_search)
 
     e2e = commands.add_parser("e2e", help="end-to-end check of gates G1-G10")
     e2e.add_argument("--scope", choices=SCOPES, default="pilot")
     e2e.set_defaults(handler=_cmd_e2e)
+
+    typos = commands.add_parser("eval-typos", help="measure typo tolerance on a bundle")
+    typos.add_argument("bundle", help="bundle name in data/bundles/ or a path")
+    typos.set_defaults(handler=_cmd_eval_typos)
     return parser
 
 

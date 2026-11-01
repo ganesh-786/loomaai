@@ -42,6 +42,8 @@ CONTENT_TABLES = {  # table -> columns, in a fixed order
     "item_chapters": "ch_id, item_id",
     "passages": "vrow, passage_id, item_id, lang, source, page, t_start, n_tokens, text",
     "dictionary": "en, np",
+    # spell_deletes is left out: it is computed from spell_words alone, and the signed checksums cover its bytes
+    "spell_words": "word, df",
 }
 
 
@@ -92,7 +94,11 @@ def content_hash(bundle_dir: Path, model_sha256: str, tokenizer_sha256: str) -> 
             digest.update(block)
     db = sqlite3.connect(f"file:{bundle_dir / 'meta' / 'chunks.db'}?mode=ro", uri=True)
     try:
+        present = {name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        # A table absent from an older schema is skipped; removing one from a newer bundle still changes the hash.
         for table, columns in CONTENT_TABLES.items():
+            if table not in present:
+                continue
             for row in db.execute(f"SELECT {columns} FROM {table} ORDER BY {columns}"):
                 digest.update(canonical_json([table, *row]))
     finally:

@@ -10,6 +10,8 @@ service will follow the same steps:
    Both lists are cut to `depth` only after filtering, so a narrow filter still returns its best matches.
 4. Reciprocal rank fusion, k = 60 (Cormack et al. 2009): each list adds 1 / (60 + rank).
 5. Passages are grouped by item; an item's score is its best passage's score.
+Spelling correction (looma_pipeline.spelling) runs first unless turned off: when an unknown word is corrected, the
+meaning search embeds the corrected query and the word search looks for the original and the corrected words.
 Side effects: none (the SQLite file is opened read-only).
 """
 
@@ -23,6 +25,7 @@ from pathlib import Path
 import numpy as np
 
 from looma_pipeline.query_terms import expand, match_expression, query_terms
+from looma_pipeline.spelling import SpellCheck, Speller
 from looma_pipeline.stages.f07_embed import Embedder, from_int8
 
 RRF_K = 60
@@ -58,6 +61,12 @@ class Hit:
     t_start: float | None
 
 
+@dataclass(frozen=True)
+class SearchResult:
+    hits: list[Hit]
+    spelling: SpellCheck   # the corrections used for the hits, if any
+
+
 class SearchEngine:
     """Loads one bundle (vectors + SQLite) and answers queries. Not thread-safe; one instance per worker."""
 
@@ -66,6 +75,7 @@ class SearchEngine:
         self.embedder = embedder
         self.vectors = from_int8(np.load(bundle_dir / VECTORS_FILE, allow_pickle=False))
         self.db = sqlite3.connect(f"file:{bundle_dir / DB_FILE}?mode=ro", uri=True)
+        self.speller = Speller(self.db)
         if self.vectors.shape[1] != embedder.dims:
             raise ValueError(f"bundle vectors have {self.vectors.shape[1]} dims, the embedder {embedder.dims}")
 
@@ -123,9 +133,12 @@ class SearchEngine:
         similarity[rows] = scores
         return [int(rows[i]) for i in top], similarity
 
-    def _lexical(self, query: str, allowed: np.ndarray, depth: int) -> list[int]:
-        """The first `depth` allowed passages in FTS5 rank order. `allowed` is a boolean mask over vector rows."""
-        expression = match_expression(expand(query_terms(query), self.db))
+    def _lexical(self, query: str, allowed: np.ndarray, depth: int, also: str | None = None) -> list[int]:
+        """The first `depth` allowed passages in FTS5 rank order. `allowed` is a boolean mask over vector rows;
+        `also` is a second wording whose terms are searched too (the original of a corrected query)."""
+        terms = query_terms(query)
+        terms += [t for t in query_terms(also or "") if t not in terms]
+        expression = match_expression(expand(terms, self.db))
         if expression is None:
             return []
         kept: list[int] = []
@@ -141,14 +154,26 @@ class SearchEngine:
             cursor.close()
         return kept
 
-    def search(self, query: str, filters: Filters = Filters(), k: int = 10, depth: int = DEFAULT_DEPTH) -> list[Hit]:
+    def respond(self, query: str, filters: Filters = Filters(), k: int = 10, depth: int = DEFAULT_DEPTH,
+                spelling: bool = True) -> SearchResult:
+        """The `k` best items for `query` under `filters`, with the spelling corrections that were applied."""
+        check = self.speller.check(query) if spelling and query.strip() else SpellCheck(query)
+        if check.corrected:
+            return SearchResult(self._search(check.corrected, filters, k, depth, also=query), check)
+        return SearchResult(self._search(query, filters, k, depth), check)
+
+    def search(self, query: str, filters: Filters = Filters(), k: int = 10, depth: int = DEFAULT_DEPTH,
+               spelling: bool = True) -> list[Hit]:
         """The `k` best items for `query` under `filters`."""
+        return self.respond(query, filters, k, depth, spelling).hits
+
+    def _search(self, query: str, filters: Filters, k: int, depth: int, also: str | None = None) -> list[Hit]:
         allowed = self.item_mask(filters)[self.row_item]
         rows = np.flatnonzero(allowed)
         if len(rows) == 0 or not query.strip():
             return []
         dense, similarity = self._dense(query, rows, depth)
-        lexical = self._lexical(query, allowed, depth)
+        lexical = self._lexical(query, allowed, depth, also)
         fused: dict[int, float] = {}
         for ranked in (dense, lexical):
             for rank, row in enumerate(ranked):
@@ -167,7 +192,13 @@ class SearchEngine:
                             round(sim, 4), passage_id, text, page, t_start))
         return hits
 
-    def timed_search(self, query: str, filters: Filters = Filters(), k: int = 10) -> tuple[list[Hit], float]:
+    def timed_search(self, query: str, filters: Filters = Filters(), k: int = 10,
+                     spelling: bool = True) -> tuple[list[Hit], float]:
+        hits, _spelling, ms = self.timed_respond(query, filters, k, spelling)
+        return hits, ms
+
+    def timed_respond(self, query: str, filters: Filters = Filters(), k: int = 10,
+                      spelling: bool = True) -> tuple[list[Hit], SpellCheck, float]:
         started = time.perf_counter()
-        hits = self.search(query, filters, k)
-        return hits, (time.perf_counter() - started) * 1000
+        result = self.respond(query, filters, k, spelling=spelling)
+        return result.hits, result.spelling, (time.perf_counter() - started) * 1000

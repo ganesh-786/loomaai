@@ -136,3 +136,21 @@ def test_results_are_deterministic_and_empty_queries_return_nothing(engine):
 def test_a_bundle_and_embedder_of_different_sizes_are_refused(settings, engine):
     with pytest.raises(ValueError, match="dims"):
         SearchEngine(engine.bundle_dir, FakeEmbedder(dims=32))
+
+
+def test_an_unknown_word_is_corrected_and_its_item_found(engine):
+    result = engine.respond("Mesurement and unit")
+    assert result.spelling.corrected == "Measurement and unit"
+    assert _ids(result.hits)[0] == fx.A_CH_6S0102
+    assert engine.respond("Mesurement and unit", spelling=False).spelling.changes == ()
+
+
+def test_a_corrected_search_also_looks_for_the_words_as_typed(engine, monkeypatch):
+    """The meaning search gets the corrected query; the word search gets both wordings."""
+    seen = {}
+    real_lexical = engine._lexical
+    monkeypatch.setattr(engine, "_lexical", lambda q, allowed, depth, also=None:
+                        seen.update(query=q, also=also) or real_lexical(q, allowed, depth, also))
+    engine.respond("Mesurement and unit")
+    assert seen == {"query": "Measurement and unit", "also": "Mesurement and unit"}
+

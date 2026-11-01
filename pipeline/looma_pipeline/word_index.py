@@ -1,9 +1,10 @@
-"""The bundle's SQLite file: items, passages, an FTS5 word index and English-Nepali dictionary pairs.
+"""The bundle's SQLite file: items, passages, an FTS5 word index, English-Nepali dictionary pairs and spelling tables.
 
 Import only. Written by F8, read by looma_pipeline.search. The FTS5 tokenizer keeps vowel signs and viramas inside
 words (`categories 'L* N* Co M*'`); SQLite's default splits Devanagari words at every vowel sign, which made `पानी`
 match 398 lesson slides instead of the 181 that contain it (measured 2026-10-28). The full-text table is contentless
 (`content=''`): passage text is stored once, in `passages`. FTS rowid = `vrow` = the passage's row in the vector file.
+The spelling tables come from the finished FTS5 index (looma_pipeline.spelling).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import sqlite3
 from pathlib import Path
 
 from looma_pipeline.models import Item, Passage
+from looma_pipeline.spelling import build_spelling_tables
 
 FTS_TOKENIZER = "unicode61 categories 'L* N* Co M*'"
 MAX_DICTIONARY_WORDS = 3  # keep word and short-phrase pairs; drop sentence-length entries
@@ -66,9 +68,10 @@ def build_word_index(path: Path, items: dict[str, Item], passages: list[Passage]
             for row, p in enumerate(passages)])
         pairs = sorted({(en.lower().strip(), np.strip()) for en, np in dictionary if usable_pair(en, np)})
         db.executemany("INSERT INTO dictionary VALUES (?, ?)", pairs)
+        spelling = build_spelling_tables(db)
         db.commit()
         db.execute("VACUUM")
         return {"items": len(used_items), "passages": len(passages), "dictionary_pairs": len(pairs),
-                "item_chapter_links": db.execute("SELECT COUNT(*) FROM item_chapters").fetchone()[0]}
+                "item_chapter_links": db.execute("SELECT COUNT(*) FROM item_chapters").fetchone()[0], **spelling}
     finally:
         db.close()

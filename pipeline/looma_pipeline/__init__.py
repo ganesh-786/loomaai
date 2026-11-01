@@ -7,4 +7,5 @@ inside the `looma-pipeline` image (see `make pipeline-image`).
 __version__ = "0.1.0"
 
 # Bundle layout version. Bump the major part when a serve-plane reader would need to change.
-BUNDLE_SCHEMA_VERSION = "1.0"
+# 1.1 adds the spelling tables; a 1.1 reader treats a 1.0 bundle as having no spelling help.
+BUNDLE_SCHEMA_VERSION = "1.1"

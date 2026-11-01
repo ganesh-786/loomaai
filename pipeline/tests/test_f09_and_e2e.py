@@ -28,6 +28,19 @@ def test_suggestions_are_proposals_with_provenance_and_skip_linked_items(setting
     assert len((result.run_dir / "proposals.jsonl").read_text().splitlines()) == len(proposals)
 
 
+def test_suggestions_never_spell_check_chapter_titles(settings, monkeypatch):
+    """Chapter titles are curated text: F9 searches them exactly as written."""
+    from looma_pipeline.spelling import Speller
+
+    def refuse(_self, query):
+        raise AssertionError(f"F9 spell-checked {query!r}")
+
+    monkeypatch.setattr(Speller, "check", refuse)
+    result = run_build(settings, "pilot", source=DictSource(fx.looma_data()), until="f09",
+                       counter=WhitespaceCounter(), embedder=FakeEmbedder())
+    assert json.loads((result.run_dir / "f09_suggestions.json").read_text())["status"] == "ok"
+
+
 def test_end_to_end_decides_every_gate(settings, fake_model_dir):
     report = run_e2e(settings, "pilot", source=DictSource(fx.looma_data()), counter=WhitespaceCounter(),
                      embedder=FakeEmbedder(), model_dir=fake_model_dir, with_tests=False)

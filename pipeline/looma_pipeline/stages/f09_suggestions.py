@@ -5,7 +5,8 @@ they are written to a file in the run folder and never to MongoDB (.claude/rules
 provenance: run id, model, snapshot hash, method, score and status "proposed".
 The chapter's own title (English, then Nepali) is the query; the search keeps items whose grade band includes the
 chapter's grade (or have no band: the age policy is open question S7), and drops chapters and items already
-linked to the chapter. MIN_SIMILARITY is provisional and not calibrated yet.
+linked to the chapter. MIN_SIMILARITY is provisional and not calibrated yet. Spelling help is off: chapter titles
+are curated text, not user input.
 Side effects: writes `proposals.jsonl` and `f09_suggestions.json` in the run folder.
 """
 
@@ -38,7 +39,7 @@ def run(ctx: RunContext, snapshot: Snapshot, items: dict[str, Item], embedder: E
                     continue
                 filters = Filters(grade=chapter_grade(chapter_id), include_unknown_grade=True,
                                   cehrd_server=ctx.settings.is_cehrd_server)
-                kept = [h for h in engine.search(query, filters, CANDIDATES_PER_CHAPTER)
+                kept = [h for h in engine.search(query, filters, CANDIDATES_PER_CHAPTER, spelling=False)
                         if items[h.item_id].ft != "chapter" and chapter_id not in items[h.item_id].ch_ids]
                 kept = [h for h in kept if h.similarity >= MIN_SIMILARITY][:PROPOSALS_PER_CHAPTER]
                 similarities += [h.similarity for h in kept]

@@ -60,7 +60,10 @@ def _index(tmp_path):
 
 def test_index_rows_line_up_with_vector_rows(tmp_path):
     path, counts = _index(tmp_path)
-    assert counts == {"items": 2, "passages": 3, "dictionary_pairs": 2, "item_chapter_links": 2}
+    assert {k: counts[k] for k in ("items", "passages", "dictionary_pairs", "item_chapter_links")} == \
+        {"items": 2, "passages": 3, "dictionary_pairs": 2, "item_chapter_links": 2}
+    # words of 4+ characters with a letter and no digit: measurement, unit, science, photosynthesis, Nepali "unit"
+    assert counts["spell_words"] == 5 and counts["spell_deletes"] > counts["spell_words"]
     db = sqlite3.connect(path)
     assert [r[0] for r in db.execute("SELECT passage_id FROM passages ORDER BY vrow")] == ["a:en:0", "a:np:0", "b:en:0"]
     rows = [r[0] for r in db.execute("SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?", ('"photosynthesis" *',))]
