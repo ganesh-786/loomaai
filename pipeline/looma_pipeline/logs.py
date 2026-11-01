@@ -33,23 +33,39 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, default=str)
 
 
-def setup_logging(level: str = "INFO") -> None:
-    """Send JSON log lines to stderr. Safe to call more than once."""
+RUN_LOG_LEVEL = logging.INFO  # run.log always keeps info and above, whatever the console shows
+
+
+def _allow(level: int) -> None:
+    """Make sure the root logger passes records of `level` on to its handlers."""
     root = logging.getLogger()
-    root.setLevel(level)
+    if root.level == logging.NOTSET or root.level > level:
+        root.setLevel(level)
+
+
+def setup_logging(level: str = "INFO") -> None:
+    """Send JSON log lines at `level` and above to stderr. Safe to call more than once."""
+    root = logging.getLogger()
     for handler in list(root.handlers):
         if getattr(handler, "_looma_stderr", False):
             root.removeHandler(handler)
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(JsonFormatter())
+    handler.setLevel(level)
     handler._looma_stderr = True  # type: ignore[attr-defined]
     root.addHandler(handler)
+    _allow(min(logging.getLevelName(level), RUN_LOG_LEVEL))
 
 
 def add_file_log(path: Path) -> logging.Handler:
-    """Also write JSON log lines to `path` (the run's `run.log`). Returns the handler so the caller can remove it."""
+    """Also write JSON log lines (info and above) to `path`, the run's `run.log`.
+
+    Returns the handler so the caller can remove it when the run ends.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(path, encoding="utf-8")
     handler.setFormatter(JsonFormatter())
+    handler.setLevel(RUN_LOG_LEVEL)
     logging.getLogger().addHandler(handler)
+    _allow(RUN_LOG_LEVEL)
     return handler

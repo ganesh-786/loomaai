@@ -28,7 +28,11 @@ def _cmd_info(settings: Settings, _args: argparse.Namespace) -> int:
 
 
 def _cmd_build(settings: Settings, args: argparse.Namespace) -> int:
-    result = run_build(settings, args.scope, until=args.until)
+    try:
+        result = run_build(settings, args.scope, until=args.until)
+    except ConfigError as exc:
+        log.error("cannot build", extra={"error": str(exc)})
+        return 2
     print(json.dumps({"run_id": result.run_id, "run_dir": str(result.run_dir), "seconds": result.seconds}))
     return 0
 
