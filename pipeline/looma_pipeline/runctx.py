@@ -2,13 +2,15 @@
 
 Import only. Each build gets a run id and a folder `data/runs/<run_id>/`. Every stage runs inside
 `RunContext.stage()`, which times it and writes `<stage>.json` with its status, counts and details, also when the
-stage fails. Side effects: creates the run folder and writes JSON and JSONL files in it.
+stage fails or is interrupted (Ctrl+C, `docker stop`). Side effects: creates the run folder and writes JSON and
+JSONL files in it.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import resource
 import secrets
 import time
 from contextlib import contextmanager
@@ -24,6 +26,11 @@ log = logging.getLogger(__name__)
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def peak_rss_mb() -> float:
+    """This process's peak resident memory so far, in MiB (Linux reports ru_maxrss in KiB)."""
+    return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
 
 
 def new_run_id(scope: str) -> str:
@@ -71,7 +78,7 @@ class RunContext:
 
     @contextmanager
     def stage(self, name: str) -> Iterator[StageReport]:
-        """Run one stage: time it and always write `<name>.json`, with status `ok` or `failed`."""
+        """Run one stage: time it and always write `<name>.json`, with status `ok`, `failed` or `interrupted`."""
         report = StageReport(stage=name)
         started = time.perf_counter()
         started_at = utc_now()
@@ -79,6 +86,10 @@ class RunContext:
         status, error = "ok", None
         try:
             yield report
+        except (KeyboardInterrupt, SystemExit) as exc:
+            # Not Exception subclasses: without this, a stopped stage would be reported as "ok".
+            status, error = "interrupted", type(exc).__name__
+            raise
         except Exception as exc:
             status, error = "failed", f"{type(exc).__name__}: {exc}"
             raise
@@ -88,10 +99,10 @@ class RunContext:
             self.write_json(f"{name}.json", {
                 "stage": name, "status": status, "error": error, "run_id": self.run_id,
                 "started_at": started_at, "finished_at": utc_now(), "seconds": seconds,
-                "counts": report.counts, "details": report.details,
+                "peak_rss_mb": peak_rss_mb(), "counts": report.counts, "details": report.details,
             })
             log.info("stage finished", extra={"stage": name, "status": status, "seconds": seconds,
-                                              "counts": report.counts})
+                                              "peak_rss_mb": peak_rss_mb(), "counts": report.counts})
 
     def write_json(self, name: str, data: Any) -> Path:
         path = self.run_dir / name

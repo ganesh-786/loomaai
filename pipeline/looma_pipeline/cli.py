@@ -10,7 +10,7 @@ Commands:
     e2e            build twice, verify, try tampered copies and decide gates G1-G10
 
 Settings come from environment variables (docs/configuration.md). Exit codes: 0 success, 1 a check or gate
-failed, 2 configuration or input error.
+failed, 2 configuration or input error, 130 stopped with Ctrl+C, 143 stopped with SIGTERM (`docker stop`).
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import signal
 import sys
 
 from looma_pipeline import __version__
@@ -136,9 +137,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def stop_on_sigterm(signum: int, _frame: object) -> None:
+    """Turn SIGTERM into SystemExit so the running stage writes an `interrupted` report. In a container this
+    process is PID 1, and PID 1 ignores SIGTERM unless a handler is installed."""
+    raise SystemExit(128 + signum)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     setup_logging(args.log_level)
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
     try:
         return args.handler(Settings.from_env(), args)
     except ConfigError as exc:
