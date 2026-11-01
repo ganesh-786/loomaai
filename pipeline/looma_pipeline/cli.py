@@ -9,6 +9,7 @@ Commands:
     search         query a bundle with the reference search (spelling correction on unless --no-spelling)
     e2e            build twice, verify, try tampered copies and decide gates G1-G10
     eval-typos     measure typo tolerance on a bundle and decide gates T1, T2, T3 and T5
+    clean          list old bundles and run folders that can go; deletes them only with --apply
 
 Settings come from environment variables (docs/configuration.md). Exit codes: 0 success, 1 a check or gate
 failed, 2 configuration or input error, 130 stopped with Ctrl+C, 143 stopped with SIGTERM (`docker stop`).
@@ -95,6 +96,20 @@ def _cmd_search(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_clean(settings: Settings, args: argparse.Namespace) -> int:
+    from looma_pipeline.retention import plan, remove
+
+    planned = plan(settings, args.keep)
+    for removal in planned.removals:
+        print(f"{'delete' if args.apply else 'would delete'}  {removal.path.relative_to(settings.data_dir)}"
+              f"  ({removal.reason})")
+    print(f"keep {len(planned.kept)} folders; {len(planned.removals)} can go, freeing "
+          f"{planned.freed_bytes / 1e6:,.0f} MB" + ("" if args.apply else ". Dry run: nothing deleted (add --apply)."))
+    if args.apply:
+        print(f"deleted {remove(planned)} folders")
+    return 0
+
+
 def _cmd_eval_typos(settings: Settings, args: argparse.Namespace) -> int:
     from looma_pipeline.eval_typos import markdown, run_typo_eval, write_report
 
@@ -163,6 +178,11 @@ def build_parser() -> argparse.ArgumentParser:
     typos = commands.add_parser("eval-typos", help="measure typo tolerance on a bundle")
     typos.add_argument("bundle", help="bundle name in data/bundles/ or a path")
     typos.set_defaults(handler=_cmd_eval_typos)
+
+    clean = commands.add_parser("clean", help="list (and with --apply delete) old bundles and run folders")
+    clean.add_argument("--keep", type=int, default=2, help="newest bundles and runs to keep of each kind")
+    clean.add_argument("--apply", action="store_true", help="delete; without it nothing is deleted")
+    clean.set_defaults(handler=_cmd_clean)
     return parser
 
 

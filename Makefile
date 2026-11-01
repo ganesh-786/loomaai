@@ -99,13 +99,14 @@ translate-captions:
 PIPELINE_IMAGE ?= looma-pipeline:dev
 PIPELINE_CONTENT_DIR ?= /usr/local/var/www/content
 SCOPE ?= pilot
+KEEP ?= 2
 PIPELINE_DOCKER = docker run --rm --network loomanet --memory 2g \
 	--user $(shell id -u):$(shell id -g) \
 	-v $(CURDIR)/data:/data -v $(PIPELINE_CONTENT_DIR):/content:ro \
 	-e PIPELINE_GIT_SHA=$(shell git rev-parse --short HEAD)
 
 .PHONY: pipeline-image pipeline-test pipeline-info pipeline-build pipeline-model pipeline-keygen \
-	pipeline-verify pipeline-search pipeline-e2e pipeline-eval-typos
+	pipeline-verify pipeline-search pipeline-e2e pipeline-eval-typos pipeline-clean
 
 pipeline-image:
 	@mkdir -p data
@@ -147,3 +148,8 @@ pipeline-e2e: pipeline-image
 pipeline-eval-typos: pipeline-image
 	@test -n "$(BUNDLE)" || { echo "usage: make pipeline-eval-typos BUNDLE=<name>"; exit 2; }
 	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) eval-typos $(BUNDLE)
+
+# Lists old bundles and run folders that can go (newest KEEP of each kind stay; models, cache and keys never).
+# Nothing is deleted unless APPLY=1: make pipeline-clean [KEEP=2] [APPLY=1]
+pipeline-clean: pipeline-image
+	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) clean --keep $(KEEP) $(if $(filter 1,$(APPLY)),--apply,)
