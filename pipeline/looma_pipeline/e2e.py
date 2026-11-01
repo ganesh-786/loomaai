@@ -8,10 +8,11 @@ run in docs/experiments/2026-11-01-e2e-build-pipeline.md. Steps:
    F7 loads the full-size model, for its int8 agreement report, and releases it. Loading both models per build
    (430 MB + 746 MB warmed) made two full-scope builds peak at 1,896 MB in one process, near the 2 GiB limit;
 4. verify build 1, then try two tampered copies: one changed byte, and a validly re-signed bundle that claims
-   another model (G3, G5);
+   another model (G3, G5). The copies are deleted once verified: they are full copies (366 MB per full-scope run)
+   and the report keeps the outcome;
 5. curated-field checksum again (G1); G6-G8 and G10 come from build 1's reports.
-Side effects: everything a build does (two bundles in data/bundles/), plus `data/runs/e2e-<time>/` with the
-tampered copies and `e2e-report.json` / `e2e-report.md`.
+Side effects: everything a build does (two bundles in data/bundles/), plus `data/runs/e2e-<time>/` with
+`e2e-report.json` / `e2e-report.md`.
 """
 
 from __future__ import annotations
@@ -95,8 +96,15 @@ def run_e2e(settings: Settings, scope: str, source: DataSource | None = None, co
 
     # Without an injected embedder, verify loads the bundle's own model, so G3 and G5 test the shipped files.
     verified = verify(bundle1, settings, embedder=embedder)
-    byte_result = verify(_tampered_byte(bundle1, work), settings, embedder=embedder)
-    model_result = verify(_tampered_model(bundle1, work, settings), settings, embedder=embedder)
+    tampered: list[Path] = []
+    try:
+        tampered.append(_tampered_byte(bundle1, work))
+        byte_result = verify(tampered[-1], settings, embedder=embedder)
+        tampered.append(_tampered_model(bundle1, work, settings))
+        model_result = verify(tampered[-1], settings, embedder=embedder)
+    finally:
+        for copy in tampered:
+            shutil.rmtree(copy, ignore_errors=True)
     after = read_curated_checksum(source)
 
     reports = {stage: _report(run_dir1, stage) for stage in STAGE_REPORTS}

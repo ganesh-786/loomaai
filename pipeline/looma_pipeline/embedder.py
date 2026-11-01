@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from looma_pipeline.config import MODEL_MAX_TOKENS, Settings
+from looma_pipeline.fsutil import link_or_copy, write_atomically
 from looma_pipeline.hashing import sha256_of_file
 
 log = logging.getLogger(__name__)
@@ -77,12 +77,13 @@ def prepare_model(settings: Settings) -> ModelInfo:
     for remote, local in MODEL_FILES:
         cached = hf_hub_download(settings.embed_model_repo, remote, revision=settings.embed_model_revision,
                                  cache_dir=str(settings.models_dir / "hf-cache"))
-        shutil.copyfile(cached, model_dir / local)
+        link_or_copy(Path(cached), model_dir / local)  # shares bytes with the download cache; never rewrites in place
         log.info("downloaded", extra={"file": remote, "bytes": (model_dir / local).stat().st_size})
 
     logging.disable(logging.INFO)  # the quantizer logs one root-logger line per tensor; keep warnings only
     try:
-        quantize_dynamic(str(model_dir / "model.fp32.onnx"), str(model_dir / INT8_NAME), weight_type=QuantType.QInt8)
+        write_atomically(model_dir / INT8_NAME, lambda path: quantize_dynamic(
+            str(model_dir / "model.fp32.onnx"), str(path), weight_type=QuantType.QInt8))
     finally:
         logging.disable(logging.NOTSET)
     files = {name: sha256_of_file(model_dir / name)

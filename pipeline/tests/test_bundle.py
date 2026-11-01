@@ -53,6 +53,18 @@ def test_build_writes_a_complete_signed_bundle(settings, fake_model_dir):
     assert [name for name, _, _ in result.checks][-1] == "self-test queries"
 
 
+
+def test_the_bundle_shares_bytes_with_its_staging_folder_and_the_model(settings, fake_model_dir):
+    result = run_build(settings, "pilot", source=DictSource(fx.looma_data()), counter=WhitespaceCounter(),
+                       embedder=FakeEmbedder(), model_dir=fake_model_dir)
+    bundle = result.outputs["bundle"]
+    same = [(bundle / "meta" / "chunks.db", result.run_dir / "staging" / "meta" / "chunks.db"),
+            (bundle / "model" / "model.int8.onnx", fake_model_dir / "model.int8.onnx")]
+    assert all(os.stat(a).st_ino == os.stat(b).st_ino for a, b in same)
+    counts = json.loads((result.run_dir / "f13_bundle.json").read_text())["counts"]
+    assert counts["files_hard_linked"] > 0 and counts["files_copied"] == 0
+    assert _verify(bundle, settings).ok
+
 def test_two_builds_from_the_same_data_have_the_same_content(settings, fake_model_dir):
     first, second = _bundle(settings, fake_model_dir), _bundle(settings, fake_model_dir)
     assert first.name != second.name

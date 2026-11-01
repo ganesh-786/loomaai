@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import looma_fixture as fx
 from fake_embedder import FakeEmbedder
@@ -49,6 +50,8 @@ def test_end_to_end_decides_every_gate(settings, fake_model_dir):
     assert gates["G8"]["pass"] is None and gates["G9"]["pass"] is None and gates["G10"]["pass"] is None
     assert "checksums" in gates["G3"]["evidence"] and "model expected by the reader" in gates["G3"]["evidence"]
     assert len(report["bundles"]) == 2
+    work = settings.runs_dir / Path(report["work_dir"]).name
+    assert sorted(p.name for p in work.iterdir()) == ["e2e-report.json", "e2e-report.md"]  # tamper copies removed
 
 
 def test_end_to_end_shares_one_int8_model_and_compares_with_full_size_in_build_1_only(settings, fake_model_dir,

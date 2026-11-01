@@ -1,9 +1,11 @@
 """F13 pack and sign: turn the checked staging folder into a signed bundle in `data/bundles/`.
 
-Import only (called by looma_pipeline.pipeline, only after F12 passed). Copies the staged vectors, SQLite file and
+Import only (called by looma_pipeline.pipeline, only after F12 passed). Puts the staged vectors, SQLite file and
 self-test queries plus the int8 model files into `data/bundles/.incoming-<name>/`, writes `manifest.json`,
 `SHA256SUMS` and the ed25519 signature, then renames the folder to `data/bundles/<name>/` in one step, so a reader
-never sees a half-written bundle. The first build creates the signing key pair in `data/keys/` (ignored by Git).
+never sees a half-written bundle. Files are hard-linked where possible (looma_pipeline.fsutil): the bundle shares
+bytes with the run's staging folder and the prepared model instead of copying them; copying the bundle elsewhere
+still copies every byte. The first build creates the signing key pair in `data/keys/` (ignored by Git).
 Side effects: writes the bundle folder, possibly the key pair, and `f13_bundle.json`.
 """
 
@@ -19,6 +21,7 @@ from looma_pipeline import BUNDLE_SCHEMA_VERSION, __version__
 from looma_pipeline.bundle import (MANIFEST_FILE, content_hash, ensure_keys, load_private_key,
                                    write_checksums_and_sign)
 from looma_pipeline.embedder import INT8_NAME, ModelInfo
+from looma_pipeline.fsutil import copy_tree_linked, link_or_copy
 from looma_pipeline.hashing import sha256_of_file
 from looma_pipeline.runctx import RunContext, utc_now
 from looma_pipeline.stages.f01_snapshot import Snapshot
@@ -62,11 +65,16 @@ def run(ctx: RunContext, snapshot: Snapshot, embedder: Embedder, checks: dict, m
         incoming = settings.bundles_dir / f".incoming-{name}"
         if incoming.exists():
             shutil.rmtree(incoming)
+        linked = copied = 0
         for folder in STAGED_FOLDERS:
-            shutil.copytree(ctx.staging_dir / folder, incoming / folder)
+            folder_linked, folder_copied = copy_tree_linked(ctx.staging_dir / folder, incoming / folder)
+            linked, copied = linked + folder_linked, copied + folder_copied
         (incoming / "model").mkdir()
         for file_name in MODEL_FILES:
-            shutil.copyfile(model_dir / file_name, incoming / "model" / file_name)
+            if link_or_copy(model_dir / file_name, incoming / "model" / file_name):
+                linked += 1
+            else:
+                copied += 1
         info = ModelInfo.load(model_dir)
         model_sha, tokenizer_sha = (sha256_of_file(incoming / "model" / f) for f in (INT8_NAME, "tokenizer.json"))
         (incoming / "model" / "model_info.json").write_text(json.dumps({
@@ -102,7 +110,8 @@ def run(ctx: RunContext, snapshot: Snapshot, embedder: Embedder, checks: dict, m
         os.replace(incoming, final)  # one rename: readers see the whole bundle or none of it
 
         files = [p for p in final.rglob("*") if p.is_file()]
-        report.counts.update({"files": len(files), "bytes": sum(p.stat().st_size for p in files)})
+        report.counts.update({"files": len(files), "bytes": sum(p.stat().st_size for p in files),
+                              "files_hard_linked": linked, "files_copied": copied})
         report.details.update({"bundle": name, "path": str(final), "content_hash": manifest["content_hash"],
                                "key_id": key})
         return final
