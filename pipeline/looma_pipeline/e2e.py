@@ -4,7 +4,9 @@ Import only; `python -m looma_pipeline e2e --scope pilot` calls `run_e2e()`. The
 run in docs/experiments/2026-11-01-e2e-build-pipeline.md. Steps:
 1. curated-field checksum of the whole database (before);
 2. the test suite (G9);
-3. build 1 and build 2 from the same data (G2, G4);
+3. build 1 and build 2 from the same data (G2, G4). One int8 embedder is shared by both builds; only build 1's
+   F7 loads the full-size model, for its int8 agreement report, and releases it. Loading both models per build
+   (430 MB + 746 MB warmed) made two full-scope builds peak at 1,896 MB in one process, near the 2 GiB limit;
 4. verify build 1, then try two tampered copies: one changed byte, and a validly re-signed bundle that claims
    another model (G3, G5);
 5. curated-field checksum again (G1); G6-G8 and G10 come from build 1's reports.
@@ -25,7 +27,8 @@ from typing import Any
 from looma_pipeline.bundle import MANIFEST_FILE, load_private_key, write_checksums_and_sign
 from looma_pipeline.chunking import TokenCounter
 from looma_pipeline.config import Settings
-from looma_pipeline.pipeline import STAGE_REPORTS, open_mongo_source, run_build
+from looma_pipeline.pipeline import STAGE_REPORTS, int8_embedder, open_mongo_source, run_build
+from looma_pipeline.runctx import peak_rss_mb
 from looma_pipeline.source import DataSource
 from looma_pipeline.stages.f01_snapshot import read_curated_checksum
 from looma_pipeline.stages.f07_embed import Embedder
@@ -78,27 +81,34 @@ def run_e2e(settings: Settings, scope: str, source: DataSource | None = None, co
     before = read_curated_checksum(source)
     tests_ok, tests_summary = run_tests() if with_tests else (None, "not run")
 
-    first = run_build(settings, scope, source=source, counter=counter, embedder=embedder, model_dir=model_dir)
-    second = run_build(settings, scope, source=source, counter=counter, embedder=embedder, model_dir=model_dir)
-    bundle1, bundle2 = first.outputs["bundle"], second.outputs["bundle"]
+    shared = embedder if embedder is not None else int8_embedder(settings)
+    first = run_build(settings, scope, source=source, counter=counter, embedder=shared, model_dir=model_dir,
+                      int8_agreement=True)
+    bundle1, run_dir1, seconds1 = first.outputs["bundle"], first.run_dir, first.seconds
+    first = None  # the gates need only its files; its records, passages and vectors can go before build 2
+    second = run_build(settings, scope, source=source, counter=counter, embedder=shared, model_dir=model_dir,
+                       int8_agreement=False)
+    bundle2, run_dir2 = second.outputs["bundle"], second.run_dir
+    second = shared = None
     manifest1 = json.loads((bundle1 / MANIFEST_FILE).read_text(encoding="utf-8"))
     manifest2 = json.loads((bundle2 / MANIFEST_FILE).read_text(encoding="utf-8"))
 
+    # Without an injected embedder, verify loads the bundle's own model, so G3 and G5 test the shipped files.
     verified = verify(bundle1, settings, embedder=embedder)
     byte_result = verify(_tampered_byte(bundle1, work), settings, embedder=embedder)
     model_result = verify(_tampered_model(bundle1, work, settings), settings, embedder=embedder)
     after = read_curated_checksum(source)
 
-    reports = {stage: _report(first.run_dir, stage) for stage in STAGE_REPORTS}
+    reports = {stage: _report(run_dir1, stage) for stage in STAGE_REPORTS}
     checks = reports["f12_checks"]["details"]
-    embed1, embed2 = reports["f07_embed"], _report(second.run_dir, "f07_embed")
+    embed1, embed2 = reports["f07_embed"], _report(run_dir2, "f07_embed")
     self_test = next(d for n, _, d in verified.checks if n == "self-test queries") if verified.checks else ""
     gates: dict[str, dict[str, Any]] = {
         "G1": {"pass": before == after == manifest1["snapshot"]["curated_checksum"],
                "evidence": f"curated checksum before {before[:16]}, after {after[:16]}; write rejection is "
                            "covered by test_mongo_readonly (G9)"},
         "G2": {"pass": all(r["status"] == "ok" for r in reports.values()),
-               "evidence": f"{len(reports)} stage reports ok, build {first.seconds} s, bundle {bundle1.name}"},
+               "evidence": f"{len(reports)} stage reports ok, build {seconds1} s, bundle {bundle1.name}"},
         "G3": {"pass": verified.ok and not byte_result.ok and _failed_check(byte_result) == "checksums"
                and not model_result.ok and _failed_check(model_result) == "model expected by the reader",
                "evidence": f"verify ok={verified.ok}; one byte changed -> refused at "
@@ -118,6 +128,9 @@ def run_e2e(settings: Settings, scope: str, source: DataSource | None = None, co
         "G9": {"pass": tests_ok, "evidence": tests_summary},
         "G10": {"pass": None, "evidence": "dev machine, not Box numbers",
                 "stage_seconds": {s: r["seconds"] for s, r in reports.items()},
+                "peak_rss_mb": {"build_1": reports["f13_bundle"].get("peak_rss_mb"),
+                                "build_2": _report(run_dir2, "f13_bundle").get("peak_rss_mb"),
+                                "whole_e2e_run": peak_rss_mb()},
                 "bundle_bytes": reports["f13_bundle"]["counts"]["bytes"],
                 "search_ms": checks["G10_search_ms"],
                 "embedding": {"passages": embed1["counts"]["passages"],

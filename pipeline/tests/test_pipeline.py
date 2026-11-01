@@ -35,3 +35,18 @@ def test_missing_model_fails_fast_with_how_to_fix(settings):
 def test_unknown_stage_is_rejected(settings):
     with pytest.raises(ValueError, match="unknown stage"):
         run_build(settings, "pilot", source=DictSource(fx.looma_data()), until="f99")
+
+
+@pytest.mark.parametrize("int8_agreement, compared", [(None, False), (False, False), (True, True)])
+def test_full_size_model_is_loaded_for_f7_only_when_asked(settings, monkeypatch, int8_agreement, compared):
+    from fake_embedder import FakeEmbedder
+
+    from looma_pipeline import pipeline
+
+    loads = []
+    monkeypatch.setattr(pipeline, "full_size_embedder", lambda _settings: loads.append(1) or FakeEmbedder())
+    result = run_build(settings, "pilot", source=DictSource(fx.looma_data()), until="f07",
+                       counter=WhitespaceCounter(), embedder=FakeEmbedder(), int8_agreement=int8_agreement)
+    report = json.loads((result.run_dir / "f07_embed.json").read_text())
+    assert ("int8_vs_full" in report["details"]) is compared
+    assert len(loads) == int(compared)

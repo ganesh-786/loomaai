@@ -55,23 +55,27 @@ def model_token_counter(settings: Settings) -> HfTokenCounter:
     return HfTokenCounter(path)
 
 
-def model_embedders(settings: Settings) -> tuple[OnnxEmbedder, OnnxEmbedder | None]:
-    """The int8 embedder, plus the full-size one when present (for the int8 agreement check).
+def int8_embedder(settings: Settings) -> OnnxEmbedder:
+    """The prepared int8 embedder (about 430 MB resident once warmed, measured on the dev VM).
 
     Raises:
         ConfigError: if the model has not been prepared yet.
     """
     try:
-        int8 = OnnxEmbedder.from_settings(settings)
+        return OnnxEmbedder.from_settings(settings)
     except FileNotFoundError as exc:
         raise ConfigError(str(exc)) from exc
-    full_path = settings.model_dir / "model.fp32.onnx"
-    full = OnnxEmbedder.from_settings(settings, model_file=full_path.name) if full_path.is_file() else None
-    return int8, full
+
+
+def full_size_embedder(settings: Settings) -> OnnxEmbedder | None:
+    """The full-size embedder for F7's int8 agreement report, or None if its file is absent (about 746 MB)."""
+    path = settings.model_dir / "model.fp32.onnx"
+    return OnnxEmbedder.from_settings(settings, model_file=path.name) if path.is_file() else None
 
 
 def _run_stages(ctx: RunContext, source: DataSource, out: dict[str, Any], until: str | None,
-                counter: TokenCounter | None, embedder: f07_embed.Embedder | None, model_dir: Path) -> None:
+                counter: TokenCounter | None, embedder: f07_embed.Embedder | None,
+                int8_agreement: bool | None, model_dir: Path) -> None:
     """Run the stages in order, storing each result in `out`; stop after `until`."""
     def done(stage: str) -> bool:
         return until == stage
@@ -94,10 +98,13 @@ def _run_stages(ctx: RunContext, source: DataSource, out: dict[str, Any], until:
     out["passages"] = f06_chunk.run(ctx, out["pieces"], counter or model_token_counter(ctx.settings))
     if done("f06"):
         return
-    full_model = None
+    if int8_agreement is None:
+        int8_agreement = embedder is None
     if embedder is None:
-        embedder, full_model = model_embedders(ctx.settings)
+        embedder = int8_embedder(ctx.settings)
+    full_model = full_size_embedder(ctx.settings) if int8_agreement else None
     out["vectors"] = f07_embed.run(ctx, out["passages"], embedder, full_model)
+    full_model = None  # only F7's int8 agreement report uses it; free it before the later stages
     if done("f07"):
         return
     f08_word_index.run(ctx, out["snapshot"], out["items"], out["passages"])
@@ -114,8 +121,13 @@ def _run_stages(ctx: RunContext, source: DataSource, out: dict[str, Any], until:
 
 def run_build(settings: Settings, scope: str, source: DataSource | None = None, until: str | None = None,
               run_id: str | None = None, counter: TokenCounter | None = None,
-              embedder: f07_embed.Embedder | None = None, model_dir: Path | None = None) -> BuildResult:
+              embedder: f07_embed.Embedder | None = None, model_dir: Path | None = None,
+              int8_agreement: bool | None = None) -> BuildResult:
     """Run the stages for `scope` up to and including `until` (default: all stages, ending with a signed bundle).
+
+    Without `embedder`, the prepared int8 model is loaded. `int8_agreement` decides whether F7 also loads the
+    full-size model, compares the two on a sample and releases it; by default only when no `embedder` is given.
+    The e2e run passes one shared int8 embedder to both builds and asks for the comparison in build 1 only.
 
     Raises:
         ValueError: for an unknown scope or stage name.
@@ -130,7 +142,8 @@ def run_build(settings: Settings, scope: str, source: DataSource | None = None, 
     try:
         source = source or open_mongo_source(settings)
         result = BuildResult(run_id=ctx.run_id, run_dir=ctx.run_dir, seconds=0.0)
-        _run_stages(ctx, source, result.outputs, until, counter, embedder, model_dir or settings.model_dir)
+        _run_stages(ctx, source, result.outputs, until, counter, embedder, int8_agreement,
+                    model_dir or settings.model_dir)
         result.seconds = round(time.perf_counter() - started, 2)
         log.info("build finished", extra={
             "run_id": ctx.run_id, "scope": scope, "seconds": result.seconds,

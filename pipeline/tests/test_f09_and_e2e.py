@@ -3,6 +3,7 @@ import json
 import looma_fixture as fx
 from fake_embedder import FakeEmbedder
 
+from looma_pipeline import e2e
 from looma_pipeline.chunking import WhitespaceCounter
 from looma_pipeline.e2e import run_e2e
 from looma_pipeline.pipeline import run_build
@@ -35,3 +36,26 @@ def test_end_to_end_decides_every_gate(settings, fake_model_dir):
     assert gates["G8"]["pass"] is None and gates["G9"]["pass"] is None and gates["G10"]["pass"] is None
     assert "checksums" in gates["G3"]["evidence"] and "model expected by the reader" in gates["G3"]["evidence"]
     assert len(report["bundles"]) == 2
+
+
+def test_end_to_end_shares_one_int8_model_and_compares_with_full_size_in_build_1_only(settings, fake_model_dir,
+                                                                                      monkeypatch):
+    """Loading both models for each build made two full-scope builds peak at 1,896 MB of the 2 GiB limit."""
+    int8 = FakeEmbedder()
+    loads, builds = [], []
+    monkeypatch.setattr(e2e, "int8_embedder", lambda _settings: loads.append(1) or int8)
+    real_run_build, real_verify = e2e.run_build, e2e.verify
+
+    def recording_run_build(*args, **kwargs):
+        builds.append((kwargs["embedder"], kwargs["int8_agreement"]))
+        return real_run_build(*args, **kwargs)
+
+    monkeypatch.setattr(e2e, "run_build", recording_run_build)
+    # the stand-in model files cannot be loaded, so verify gets the shared stand-in embedder
+    monkeypatch.setattr(e2e, "verify", lambda bundle, s, embedder=None: real_verify(bundle, s, embedder=int8))
+    report = run_e2e(settings, "pilot", source=DictSource(fx.looma_data()), counter=WhitespaceCounter(),
+                     model_dir=fake_model_dir, with_tests=False)
+    assert loads == [1]
+    assert builds == [(int8, True), (int8, False)]
+    assert report["gates"]["G4"]["pass"]
+    assert report["gates"]["G10"]["peak_rss_mb"]["whole_e2e_run"] > 0
