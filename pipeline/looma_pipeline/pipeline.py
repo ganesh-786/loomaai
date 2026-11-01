@@ -1,7 +1,9 @@
-"""Runs the build stages in order and returns what they produced.
+"""Runs the build stages F1 to F13 in order and returns what they produced.
 
 Import only; `python -m looma_pipeline build` calls `run_build()`. Side effects are those of the stages: reads
-MongoDB (read only) and writes into `data/runs/<run_id>/`.
+MongoDB (read only), writes into `data/runs/<run_id>/`, and (F13) writes a signed bundle into `data/bundles/`.
+Dependencies can be injected (data source, token counter, embedder, model folder) so every stage runs in tests
+without a database or a model.
 """
 
 from __future__ import annotations
@@ -19,11 +21,14 @@ from looma_pipeline.logs import add_file_log
 from looma_pipeline.mongo_readonly import connect_readonly
 from looma_pipeline.runctx import RunContext
 from looma_pipeline.source import DataSource, MongoSource
-from looma_pipeline.stages import f01_snapshot, f02_content_map, f03_extract, f04_clean, f05_nepali, f06_chunk, f07_embed, f08_word_index, f12_checks
+from looma_pipeline.stages import (f01_snapshot, f02_content_map, f03_extract, f04_clean, f05_nepali, f06_chunk,
+                                   f07_embed, f08_word_index, f09_suggestions, f12_checks, f13_bundle)
 
 log = logging.getLogger(__name__)
 
-STAGES = ("f01", "f02", "f03", "f04", "f05", "f06", "f07", "f08", "f12")
+STAGES = ("f01", "f02", "f03", "f04", "f05", "f06", "f07", "f08", "f09", "f12", "f13")
+STAGE_REPORTS = ("f01_snapshot", "f02_content_map", "f03_extract", "f04_clean", "f05_nepali", "f06_chunk",
+                 "f07_embed", "f08_word_index", "f09_suggestions", "f12_checks", "f13_bundle")
 
 
 @dataclass
@@ -65,47 +70,57 @@ def model_embedders(settings: Settings) -> tuple[OnnxEmbedder, OnnxEmbedder | No
     return int8, full
 
 
-def _run_stages(ctx: RunContext, source: DataSource, outputs: dict[str, Any], until: str | None,
-                counter: TokenCounter | None, embedder: f07_embed.Embedder | None) -> None:
-    """Run the stages in order, storing each result in `outputs`; stop after `until`."""
-    outputs["snapshot"] = f01_snapshot.run(ctx, source)
-    if until == "f01":
+def _run_stages(ctx: RunContext, source: DataSource, out: dict[str, Any], until: str | None,
+                counter: TokenCounter | None, embedder: f07_embed.Embedder | None, model_dir: Path) -> None:
+    """Run the stages in order, storing each result in `out`; stop after `until`."""
+    def done(stage: str) -> bool:
+        return until == stage
+
+    out["snapshot"] = f01_snapshot.run(ctx, source)
+    if done("f01"):
         return
-    outputs["content_map"] = f02_content_map.run(ctx, outputs["snapshot"])
-    if until == "f02":
+    out["content_map"] = f02_content_map.run(ctx, out["snapshot"])
+    if done("f02"):
         return
-    raw_pieces = f03_extract.run(ctx, outputs["snapshot"], outputs["content_map"])
-    if until == "f03":
-        outputs["pieces"] = raw_pieces
+    out["pieces"] = f03_extract.run(ctx, out["snapshot"], out["content_map"])
+    if done("f03"):
         return
-    outputs["items"], outputs["pieces"] = f04_clean.run(ctx, outputs["snapshot"], raw_pieces)
-    if until == "f04":
+    out["items"], out["pieces"] = f04_clean.run(ctx, out["snapshot"], out["pieces"])
+    if done("f04"):
         return
-    outputs["pieces"] = f05_nepali.run(ctx, outputs["pieces"])
-    if until == "f05":
+    out["pieces"] = f05_nepali.run(ctx, out["pieces"])
+    if done("f05"):
         return
-    outputs["passages"] = f06_chunk.run(ctx, outputs["pieces"], counter or model_token_counter(ctx.settings))
-    if until == "f06":
+    out["passages"] = f06_chunk.run(ctx, out["pieces"], counter or model_token_counter(ctx.settings))
+    if done("f06"):
         return
     full_model = None
     if embedder is None:
         embedder, full_model = model_embedders(ctx.settings)
-    outputs["vectors"] = f07_embed.run(ctx, outputs["passages"], embedder, full_model)
-    if until == "f07":
+    out["vectors"] = f07_embed.run(ctx, out["passages"], embedder, full_model)
+    if done("f07"):
         return
-    f08_word_index.run(ctx, outputs["snapshot"], outputs["items"], outputs["passages"])
-    if until == "f08":
+    f08_word_index.run(ctx, out["snapshot"], out["items"], out["passages"])
+    if done("f08"):
         return
-    f12_checks.run(ctx, outputs["snapshot"], outputs["items"], embedder)
+    out["proposals"] = f09_suggestions.run(ctx, out["snapshot"], out["items"], embedder)
+    if done("f09"):
+        return
+    out["checks"] = f12_checks.run(ctx, out["snapshot"], out["items"], embedder)
+    if done("f12"):
+        return
+    out["bundle"] = f13_bundle.run(ctx, out["snapshot"], embedder, out["checks"], model_dir)
 
 
 def run_build(settings: Settings, scope: str, source: DataSource | None = None, until: str | None = None,
               run_id: str | None = None, counter: TokenCounter | None = None,
-              embedder: f07_embed.Embedder | None = None) -> BuildResult:
-    """Run the stages for `scope` up to and including `until` (default: all stages).
+              embedder: f07_embed.Embedder | None = None, model_dir: Path | None = None) -> BuildResult:
+    """Run the stages for `scope` up to and including `until` (default: all stages, ending with a signed bundle).
 
     Raises:
         ValueError: for an unknown scope or stage name.
+        ConfigError: when the model has not been prepared.
+        ChecksFailed: when an F12 gate fails (no bundle is written).
     """
     if until is not None and until not in STAGES:
         raise ValueError(f"unknown stage {until!r}; choose one of {', '.join(STAGES)}")
@@ -115,10 +130,12 @@ def run_build(settings: Settings, scope: str, source: DataSource | None = None, 
     try:
         source = source or open_mongo_source(settings)
         result = BuildResult(run_id=ctx.run_id, run_dir=ctx.run_dir, seconds=0.0)
-        _run_stages(ctx, source, result.outputs, until, counter, embedder)
+        _run_stages(ctx, source, result.outputs, until, counter, embedder, model_dir or settings.model_dir)
         result.seconds = round(time.perf_counter() - started, 2)
-        log.info("build finished", extra={"run_id": ctx.run_id, "scope": scope, "seconds": result.seconds,
-                                          "stages": list(ctx.stage_seconds)})
+        log.info("build finished", extra={
+            "run_id": ctx.run_id, "scope": scope, "seconds": result.seconds,
+            "passages": len(result.outputs.get("passages", [])),
+            "bundle": str(result.outputs["bundle"]) if "bundle" in result.outputs else None})
         return result
     finally:
         logging.getLogger().removeHandler(file_log)

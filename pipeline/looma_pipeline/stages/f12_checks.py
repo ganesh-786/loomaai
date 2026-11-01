@@ -130,7 +130,12 @@ def comparison(engine: SearchEngine, looma_web_url: str) -> list[dict]:
     return rows
 
 
-def run(ctx: RunContext, snapshot: Snapshot, items: dict[str, Item], embedder: Embedder) -> None:
+def run(ctx: RunContext, snapshot: Snapshot, items: dict[str, Item], embedder: Embedder) -> dict:
+    """Run the checks. Returns their details (recorded in the bundle manifest).
+
+    Raises:
+        ChecksFailed: if G5, G6 or G7 fails.
+    """
     with ctx.stage("f12_checks") as report:
         engine = SearchEngine(ctx.staging_dir, embedder)
         try:
@@ -172,6 +177,7 @@ def run(ctx: RunContext, snapshot: Snapshot, items: dict[str, Item], embedder: E
                                   "chapters_checked": chapters["chapters"]})
             if failures:
                 raise ChecksFailed("; ".join(failures))
+            return report.details
         finally:
             engine.close()
 

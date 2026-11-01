@@ -104,7 +104,8 @@ PIPELINE_DOCKER = docker run --rm --network loomanet --memory 2g \
 	-v $(CURDIR)/data:/data -v $(PIPELINE_CONTENT_DIR):/content:ro \
 	-e PIPELINE_GIT_SHA=$(shell git rev-parse --short HEAD)
 
-.PHONY: pipeline-image pipeline-test pipeline-info pipeline-build pipeline-model
+.PHONY: pipeline-image pipeline-test pipeline-info pipeline-build pipeline-model pipeline-keygen \
+	pipeline-verify pipeline-search pipeline-e2e
 
 pipeline-image:
 	@mkdir -p data
@@ -123,3 +124,21 @@ pipeline-build: pipeline-image
 # Downloads the pinned embedder (network, about 500 MB once) and writes the int8 model into data/models/.
 pipeline-model: pipeline-image
 	$(PIPELINE_DOCKER) -e HF_HUB_OFFLINE=0 $(PIPELINE_IMAGE) prepare-model
+
+# Creates the bundle signing key pair in data/keys/ if missing (the first build also does this).
+pipeline-keygen: pipeline-image
+	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) keygen
+
+# Verifies a bundle: make pipeline-verify BUNDLE=<name in data/bundles/>
+pipeline-verify: pipeline-image
+	@test -n "$(BUNDLE)" || { echo "usage: make pipeline-verify BUNDLE=<name>"; exit 2; }
+	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) verify $(BUNDLE)
+
+# Searches a bundle: make pipeline-search BUNDLE=<name> Q="how do plants make food"
+pipeline-search: pipeline-image
+	@test -n "$(BUNDLE)" -a -n "$(Q)" || { echo 'usage: make pipeline-search BUNDLE=<name> Q="..."'; exit 2; }
+	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) search $(BUNDLE) "$(Q)"
+
+# End-to-end check of gates G1-G10: builds SCOPE twice, verifies, tampers, runs the tests. Writes data/ only.
+pipeline-e2e: pipeline-image
+	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) e2e --scope $(SCOPE)
