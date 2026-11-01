@@ -1,0 +1,11 @@
+# Top-level dependencies of the build pipeline. Exact pins live in requirements.lock.
+pymongo==4.10.1          # same client version as appai/ (read-only use here)
+numpy
+onnxruntime              # embeddings on CPU, no PyTorch
+onnx                     # needed by onnxruntime.quantization (int8 export)
+tokenizers               # the embedder's own tokenizer (tokenizer.json)
+huggingface_hub          # download a pinned model revision
+PyMuPDF==1.24.13         # same PDF library version as appai/
+beautifulsoup4
+cryptography             # ed25519 bundle signatures
+pytest

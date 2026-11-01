@@ -1,0 +1,7 @@
+# Build context for pipeline/Dockerfile (BuildKit reads <Dockerfile>.dockerignore). Allow-list: only the code the
+# image needs. Keeps data/ (models, bundles, signing keys) and .env out of the image.
+*
+!pipeline/
+!npttf2utf/
+pipeline/**/__pycache__
+pipeline/**/.pytest_cache

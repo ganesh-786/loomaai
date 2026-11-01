@@ -93,3 +93,25 @@ video-captions:
 
 translate-captions:
 	@$(setup_env) python3 -m appai.cli.translate_captions
+
+# ---- Build pipeline F1-F13 (docs/architecture.md) ----
+# Reads looma-db read-only and writes only under data/. Runs in its own image on the loomanet network.
+PIPELINE_IMAGE ?= looma-pipeline:dev
+PIPELINE_CONTENT_DIR ?= /usr/local/var/www/content
+SCOPE ?= pilot
+PIPELINE_DOCKER = docker run --rm --network loomanet --memory 2g \
+	--user $(shell id -u):$(shell id -g) \
+	-v $(CURDIR)/data:/data -v $(PIPELINE_CONTENT_DIR):/content:ro \
+	-e PIPELINE_GIT_SHA=$(shell git rev-parse --short HEAD)
+
+.PHONY: pipeline-image pipeline-test pipeline-info
+
+pipeline-image:
+	@mkdir -p data
+	docker build -f pipeline/Dockerfile -t $(PIPELINE_IMAGE) .
+
+pipeline-test: pipeline-image
+	$(PIPELINE_DOCKER) -w /app/pipeline --entrypoint python $(PIPELINE_IMAGE) -m pytest
+
+pipeline-info: pipeline-image
+	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) info
