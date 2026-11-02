@@ -17,15 +17,19 @@ from looma_pipeline.text.normalize import html_to_text, normalize_text
 TAXONOMY_KEYS = ("key1", "key2", "key3", "key4")
 
 # Lesson Credits slides name the people who made, edited and translated a lesson. Indexed, they made searches match
-# names: "prakash sanshleshan" found "Made by: Prakash". Wordings come from a read-only survey of all 8,047 inline
-# slides (2026-11-02), where the longest credits slide had 34 words.
+# people's names instead of topics. Wordings come from read-only surveys of all 8,047 inline slides (2026-11-02),
+# where the longest credits slide had 36 words.
 CREDITS_MAX_WORDS = 60
-_CREDITS_HEADING = re.compile(r"(?:lesson|lp|एलपी|पाठ)\s*(?:credits?|क्रेडिट)", re.IGNORECASE)
-_PLAIN_CREDITS_HEADING = re.compile(r"credits?|क्रेडिट|श्रेय", re.IGNORECASE)
+CREDITS_HEADING_LINES = 3  # a heading can follow a title line ("5SS02.01-02", "L", a drawn rule)
+_CREDIT = r"(?:credits?|क्रेडिट|श्रेय)"
+_LESSON_CODE_TITLE = r"(?:\d{1,2}[A-Za-z]{1,3}[\d.\-]*\b.{0,60}?[\s:,])?"  # "6EN Field Trip: ", "5SS01.05 "
+_LESSON_CREDITS_HEADING = re.compile(rf"{_LESSON_CODE_TITLE}(?:lesson|lp|एलपी|पाठ)\s*{_CREDIT}\s*:?", re.IGNORECASE)
+_CREDITS_HEADING = re.compile(rf"{_LESSON_CODE_TITLE}{_CREDIT}\s*:?", re.IGNORECASE)
 _BY_LINE = re.compile(
-    r"(?i:(?:lesson\s+)?(?:made|edited|translated)\s+by)(?:\s*:|\s+[A-Z])"  # "Made by: Asha", "Lesson made by Asha"
-    r"|(?:बनाइएको|अनुवादित)\s*(?:द्वारा\s*)?:"  # "बनाइएको: आशा"
-    r"|\S.{0,40}?द्वारा\s+(?:बनाइएको|सम्पादन)(?:\s+[\d/.\-]+)?$"  # "आशा द्वारा बनाइएको ६/१९/२०१९"
+    r"(?i:(?:lesson\s+)?(?:made|edited|translated|created)\s+by)(?:\s*:|\s+[A-Z])"  # "Made by: Asha", "Created by Asha"
+    r"|(?i:by)\s*:.*\d{1,4}[/.\-]\d{1,2}[/.\-]\d{2,4}"  # "By: Asha 7/20/20"; a poem's "By:" line has no date
+    r"|(?:बनाइएको|बनाएको|बनाउने|अनुवादित)\s*(?:द्वारा\s*)?:"  # "बनाइएको: आशा", "बनाउने: आशा"
+    r"|\S.{0,40}?द्वारा\s+(?:बनाइएको|सम्पादन|सम्पादित|सिर्जना\s+गरिएको)(?:\s+[\d/.\-]+)?$"  # "आशा द्वारा बनाइएको"
 )
 _DATE = re.compile(r"\d{1,4}[/.\-]\d{1,2}[/.\-]\d{2,4}|\b\d{4}\b")  # \d also matches Devanagari digits
 
@@ -49,19 +53,23 @@ def title_pieces(doc: dict) -> list[TextPiece]:
 def is_credits_slide(text: str) -> bool:
     """Whether a slide's text is a Lesson Credits slide rather than lesson content.
 
-    A credits slide is short and starts with a credits heading ("Lesson Credits", "LP क्रेडिट") or a by-line
-    ("Made by: Asha", "आशा द्वारा बनाइएको"). A plain "Credits", "क्रेडिट" or "श्रेय" heading also needs a by-line or a
-    date below it, so a slide explaining credit (borrowed money) stays searchable. "Made by" inside lesson text
-    ("the sounds made by 16 musical instruments") never counts.
+    A credits slide is short and starts with a by-line ("Made by: Asha", "आशा द्वारा बनाइएको") or has a credits heading
+    in its first lines. "Lesson Credits" or "LP क्रेडिट" is enough on its own; a plain "Credits", "क्रेडिट" or "श्रेय"
+    also needs a by-line or a date below it. A heading may follow a Looma lesson code ("6M17.01 Perimeter Credits")
+    but not other words, so "Extra Credit" questions and "Buying on credit" stay searchable, as does "made by" inside
+    lesson text ("the sounds made by 16 musical instruments").
     """
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines or len(text.split()) > CREDITS_MAX_WORDS:
         return False
-    first, rest = lines[0], lines[1:]
-    if _CREDITS_HEADING.fullmatch(first) or _BY_LINE.match(first):
+    if _BY_LINE.match(lines[0]):
         return True
-    return bool(_PLAIN_CREDITS_HEADING.fullmatch(first)) and any(
-        _BY_LINE.match(line) or _DATE.search(line) for line in rest)
+    for index, line in enumerate(lines[:CREDITS_HEADING_LINES]):
+        if _LESSON_CREDITS_HEADING.fullmatch(line):
+            return True
+        if _CREDITS_HEADING.fullmatch(line):
+            return any(_BY_LINE.match(below) or _DATE.search(below) for below in lines[index + 1:])
+    return False
 
 
 def lesson_pieces(item_id: str, lesson: dict) -> list[TextPiece]:
