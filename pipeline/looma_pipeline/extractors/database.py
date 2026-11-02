@@ -2,16 +2,32 @@
 
 Import only; pure functions over records from the F1 snapshot. Lesson slides hold HTML in `html` (English) and
 `nepali`; when the Nepali field is just a copy of the English one it is skipped, so the same text is not indexed
-twice. Games hold `prompts` and `responses` lists.
+twice. Lesson Credits slides (who made and translated a lesson) are skipped too. Games hold `prompts` and
+`responses` lists.
 """
 
 from __future__ import annotations
+
+import re
 
 from looma_pipeline.models import TextPiece
 from looma_pipeline.records import merged_fields
 from looma_pipeline.text.normalize import html_to_text, normalize_text
 
 TAXONOMY_KEYS = ("key1", "key2", "key3", "key4")
+
+# Lesson Credits slides name the people who made, edited and translated a lesson. Indexed, they made searches match
+# names: "prakash sanshleshan" found "Made by: Prakash". Wordings come from a read-only survey of all 8,047 inline
+# slides (2026-11-02), where the longest credits slide had 34 words.
+CREDITS_MAX_WORDS = 60
+_CREDITS_HEADING = re.compile(r"(?:lesson|lp|एलपी|पाठ)\s*(?:credits?|क्रेडिट)", re.IGNORECASE)
+_PLAIN_CREDITS_HEADING = re.compile(r"credits?|क्रेडिट|श्रेय", re.IGNORECASE)
+_BY_LINE = re.compile(
+    r"(?i:(?:lesson\s+)?(?:made|edited|translated)\s+by)(?:\s*:|\s+[A-Z])"  # "Made by: Asha", "Lesson made by Asha"
+    r"|(?:बनाइएको|अनुवादित)\s*(?:द्वारा\s*)?:"  # "बनाइएको: आशा"
+    r"|\S.{0,40}?द्वारा\s+(?:बनाइएको|सम्पादन)(?:\s+[\d/.\-]+)?$"  # "आशा द्वारा बनाइएको ६/१९/२०१९"
+)
+_DATE = re.compile(r"\d{1,4}[/.\-]\d{1,2}[/.\-]\d{2,4}|\b\d{4}\b")  # \d also matches Devanagari digits
 
 
 def title_pieces(doc: dict) -> list[TextPiece]:
@@ -30,14 +46,35 @@ def title_pieces(doc: dict) -> list[TextPiece]:
     return pieces
 
 
+def is_credits_slide(text: str) -> bool:
+    """Whether a slide's text is a Lesson Credits slide rather than lesson content.
+
+    A credits slide is short and starts with a credits heading ("Lesson Credits", "LP क्रेडिट") or a by-line
+    ("Made by: Asha", "आशा द्वारा बनाइएको"). A plain "Credits", "क्रेडिट" or "श्रेय" heading also needs a by-line or a
+    date below it, so a slide explaining credit (borrowed money) stays searchable. "Made by" inside lesson text
+    ("the sounds made by 16 musical instruments") never counts.
+    """
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines or len(text.split()) > CREDITS_MAX_WORDS:
+        return False
+    first, rest = lines[0], lines[1:]
+    if _CREDITS_HEADING.fullmatch(first) or _BY_LINE.match(first):
+        return True
+    return bool(_PLAIN_CREDITS_HEADING.fullmatch(first)) and any(
+        _BY_LINE.match(line) or _DATE.search(line) for line in rest)
+
+
 def lesson_pieces(item_id: str, lesson: dict) -> list[TextPiece]:
-    """One piece per inline slide and language. Slides that only reference another activity are skipped."""
+    """One piece per inline slide and language. Slides that only reference another activity, and Lesson Credits
+    slides, are skipped."""
     pieces = []
     for order, slide in enumerate(lesson.get("data") or []):
         if not isinstance(slide, dict) or slide.get("ft") != "inline":
             continue
         english = html_to_text(slide.get("html"))
         nepali = html_to_text(slide.get("nepali"))
+        if is_credits_slide(english) or is_credits_slide(nepali):
+            continue  # both fields hold the same slide, so credits in either language mean a credits slide
         if english:
             pieces.append(TextPiece(item_id, "lesson", order, english))
         if nepali and nepali != english:
