@@ -153,3 +153,27 @@ pipeline-eval-typos: pipeline-image
 # Nothing is deleted unless APPLY=1: make pipeline-clean [KEEP=2] [APPLY=1]
 pipeline-clean: pipeline-image
 	$(PIPELINE_DOCKER) $(PIPELINE_IMAGE) clean --keep $(KEEP) $(if $(filter 1,$(APPLY)),--apply,)
+
+# ---- Search service, serve plane (docs/install-and-run.md) ----
+# The looma-search image holds only what search needs. SEARCH_BUNDLE is a folder name in data/bundles.
+SEARCH_IMAGE ?= looma-search:dev
+SEARCH_COMPOSE = SEARCH_BUNDLE=$(SEARCH_BUNDLE) docker compose -f docker-compose.search.yml
+
+.PHONY: search-image search-image-arm64 search-up search-down search-health
+
+search-image:
+	docker build -f pipeline/Dockerfile.serve -t $(SEARCH_IMAGE) .
+
+# Same image for an arm64 Box (Odroid C4), built with emulation on an x86 machine.
+search-image-arm64:
+	docker buildx build --platform linux/arm64 -f pipeline/Dockerfile.serve -t $(SEARCH_IMAGE)-arm64 --load .
+
+search-up:
+	@test -n "$(SEARCH_BUNDLE)" || { echo "usage: make search-up SEARCH_BUNDLE=<folder in data/bundles>"; exit 2; }
+	$(SEARCH_COMPOSE) up -d
+
+search-down:
+	SEARCH_BUNDLE=unused docker compose -f docker-compose.search.yml down
+
+search-health:
+	curl -fsS http://127.0.0.1:47200/health

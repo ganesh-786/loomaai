@@ -1,0 +1,40 @@
+# looma-search, the serve-plane search service (docs/install-and-run.md). Separate from docker-compose.yml, which
+# runs the prototype's admin tools: a Looma Box or an online server runs only this file.
+#
+#   SEARCH_BUNDLE=<folder in data/bundles> docker compose -f docker-compose.search.yml up -d
+#
+# Looma-II reaches it on the loomanet network at http://looma-search:47200. The host port is bound to 127.0.0.1
+# for local checks only. Only the bundle and the public verification key are mounted, both read-only.
+services:
+  looma-search:
+    image: looma-search:dev
+    build:
+      context: .
+      dockerfile: pipeline/Dockerfile.serve
+    container_name: looma-search
+    command: ["/bundle"]
+    environment:
+      SEARCH_THREADS: "4"
+      SEARCH_GRADE_WINDOW: "1"        # provisional until Skip decides the age rule (open question S7)
+      SEARCH_MIN_SIMILARITY: ""       # off until calibrated on the golden questions
+      LOOMA_SERVER: "${LOOMA_SERVER:-looma}"  # CEHRD only on the CEHRD portal
+    volumes:
+      - ./data/bundles/${SEARCH_BUNDLE:?set SEARCH_BUNDLE to a folder in data/bundles}:/bundle:ro
+      - ./data/keys/release-ed25519.pub:/data/keys/release-ed25519.pub:ro
+    ports:
+      - "127.0.0.1:47200:47200"
+    networks:
+      - loomanet
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 1g
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+networks:
+  loomanet:
+    external: true
