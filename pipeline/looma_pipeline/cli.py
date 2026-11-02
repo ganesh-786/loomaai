@@ -10,9 +10,11 @@ Commands:
     e2e            build twice, verify, try tampered copies and decide gates G1-G10
     eval-typos     measure typo tolerance on a bundle and decide gates T1, T2, T3 and T5
     clean          list old bundles and run folders that can go; deletes them only with --apply
+    serve          verify a bundle, then answer searches over HTTP (the looma-search service; blocks)
 
 Settings come from environment variables (docs/configuration.md). Exit codes: 0 success, 1 a check or gate
-failed, 2 configuration or input error, 130 stopped with Ctrl+C, 143 stopped with SIGTERM (`docker stop`).
+failed, 2 configuration or input error (including a refused bundle), 130 stopped with Ctrl+C, 143 stopped with
+SIGTERM (`docker stop`). `serve` exits with 0 when Ctrl+C or SIGTERM stops it: that is its normal stop.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import signal
 import sys
 
@@ -93,6 +96,22 @@ def _cmd_search(settings: Settings, args: argparse.Namespace) -> int:
     output["hits"] = [{"item_id": h.item_id, "title": h.title, "ft": h.ft, "score": h.score,
                        "similarity": h.similarity, "page": h.page, "passage": h.passage[:160]} for h in hits]
     _print(output)
+    return 0
+
+
+def _cmd_serve(settings: Settings, args: argparse.Namespace) -> int:
+    from looma_pipeline import service  # module attribute lookups, so tests can swap in a stand-in model
+
+    try:
+        policy = service.Policy.from_env(os.environ, settings)
+        loaded = service.load_service(resolve_bundle(settings, args.bundle), settings, policy)
+    except ValueError as exc:
+        log.error("configuration error", extra={"error": str(exc)})
+        return 2
+    except service.BundleRefused as exc:
+        log.error("bundle refused", extra={"error": str(exc)})
+        return 2
+    service.serve(loaded, service.Listen.from_env(os.environ))
     return 0
 
 
@@ -170,6 +189,10 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--type", action="append", help="restrict to a file type (repeatable)")
     search.add_argument("--no-spelling", action="store_true", help="search exactly as typed")
     search.set_defaults(handler=_cmd_search)
+
+    serve = commands.add_parser("serve", help="verify a bundle, then answer searches over HTTP (looma-search)")
+    serve.add_argument("bundle", help="bundle name in data/bundles/ or a path")
+    serve.set_defaults(handler=_cmd_serve)
 
     e2e = commands.add_parser("e2e", help="end-to-end check of gates G1-G10")
     e2e.add_argument("--scope", choices=SCOPES, default="pilot")

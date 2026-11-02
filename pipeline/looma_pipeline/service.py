@@ -288,7 +288,8 @@ def load_service(bundle_dir: Path, settings: Settings, policy: Policy, embedder:
 
 
 def serve(service: SearchService, listen: Listen) -> None:
-    """Serve until stopped (Ctrl+C or SIGTERM). Blocks."""
+    """Serve until stopped. Blocks. On Ctrl+C or SIGTERM waitress closes the server and this returns, so the
+    `serve` command exits with 0: a normal stop for Docker and systemd."""
     from waitress import serve as waitress_serve  # imported here: build-plane commands never need it
 
     log.info("serving", extra={"bundle": service.manifest.get("bundle_name"), "host": listen.host,
@@ -296,3 +297,4 @@ def serve(service: SearchService, listen: Listen) -> None:
     waitress_serve(make_app(service), host=listen.host, port=listen.port, threads=listen.threads,
                    ident="looma-search", channel_timeout=30, connection_limit=100,
                    max_request_header_size=8192, max_request_body_size=1024, clear_untrusted_proxy_headers=True)
+    log.info("stopped", extra={"bundle": service.manifest.get("bundle_name")})

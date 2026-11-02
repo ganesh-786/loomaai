@@ -85,7 +85,8 @@ def test_a_changed_bundle_is_refused_and_a_good_one_is_served(settings, fake_mod
 
 def test_the_serve_command_verifies_answers_and_stops_on_sigterm(settings, fake_model_dir):
     """Runs `python -m looma_pipeline serve <bundle>` in its own process (with the fake embedder swapped in), waits
-    for /health, then sends SIGTERM as `docker stop` does: the process must exit at once with 143."""
+    for /health, then sends SIGTERM as `docker stop` does. The server closes and the process exits at once with 0,
+    a normal stop for Docker and systemd (systemd counts 143 as a failure unless told otherwise)."""
     bundle = _signed_bundle(settings, fake_model_dir)
     port = _free_port()
     script = (
@@ -113,9 +114,9 @@ def test_the_serve_command_verifies_answers_and_stops_on_sigterm(settings, fake_
         assert status == 200 and health["bundle"] == bundle.name
         assert _get(f"http://127.0.0.1:{port}/search?q=units")[0] == 200
         process.send_signal(signal.SIGTERM)
-        assert process.wait(timeout=10) == 128 + signal.SIGTERM
+        assert process.wait(timeout=10) == 0
     finally:
         if process.poll() is None:
             process.kill()
     logs = process.stderr.read()
-    assert '"msg": "serving"' in logs and '"query_chars": 5' in logs and "units" not in logs.replace("/search", "")
+    assert '"msg": "serving"' in logs and '"msg": "stopped"' in logs and '"query_chars": 5' in logs and "units" not in logs.replace("/search", "")
