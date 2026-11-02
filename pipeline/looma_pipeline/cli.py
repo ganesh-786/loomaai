@@ -100,19 +100,9 @@ def _cmd_search(settings: Settings, args: argparse.Namespace) -> int:
 
 
 def _cmd_serve(settings: Settings, args: argparse.Namespace) -> int:
-    from looma_pipeline import service  # module attribute lookups, so tests can swap in a stand-in model
+    from looma_pipeline import service
 
-    try:
-        policy = service.Policy.from_env(os.environ, settings)
-        loaded = service.load_service(resolve_bundle(settings, args.bundle), settings, policy)
-    except ValueError as exc:
-        log.error("configuration error", extra={"error": str(exc)})
-        return 2
-    except service.BundleRefused as exc:
-        log.error("bundle refused", extra={"error": str(exc)})
-        return 2
-    service.serve(loaded, service.Listen.from_env(os.environ))
-    return 0
+    return service.run(args.bundle, settings, os.environ)
 
 
 def _cmd_clean(settings: Settings, args: argparse.Namespace) -> int:

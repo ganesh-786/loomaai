@@ -1,7 +1,9 @@
 """looma-search: the HTTP search service of the serve plane (Looma Box and online servers).
 
-Import only; `python -m looma_pipeline serve <bundle>` starts it. Looma-II's PHP calls it on the local network with
-a time limit and falls back to its keyword search, so the service adds to search and can never take it down.
+Run it with `python -m looma_pipeline.service <bundle>` (the looma-search image) or `python -m looma_pipeline serve
+<bundle>` (the pipeline image). This module imports only search code, so the slim image needs no PDF, OCR or MongoDB
+library. Looma-II's PHP calls it on the local network with a time limit and falls back to its keyword search, so the
+service adds to search and can never take it down.
 
 Endpoints (GET only, JSON, UTF-8):
   /health  the bundle, model, counts and policy in use
@@ -16,9 +18,13 @@ Side effects: one JSON log line per request with path, status, time and query le
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import math
+import os
+import signal
+import sys
 import threading
 import time
 import traceback
@@ -28,7 +34,8 @@ from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import parse_qs
 
 from looma_pipeline.chapters import CHAPTER_ID_RE, chapter_grade
-from looma_pipeline.config import Settings, _int, _text
+from looma_pipeline.config import ConfigError, Settings, _int, _text
+from looma_pipeline.logs import setup_logging
 from looma_pipeline.search import Filters, Hit, SearchEngine
 from looma_pipeline.spelling import SpellCheck
 
@@ -298,3 +305,46 @@ def serve(service: SearchService, listen: Listen) -> None:
                    ident="looma-search", channel_timeout=30, connection_limit=100,
                    max_request_header_size=8192, max_request_body_size=1024, clear_untrusted_proxy_headers=True)
     log.info("stopped", extra={"bundle": service.manifest.get("bundle_name")})
+
+
+def run(bundle: str, settings: Settings, env: Mapping[str, str]) -> int:
+    """Verify and load `bundle` (a folder name in data/bundles or a path), then serve until stopped. Returns the exit
+    code: 0 after a normal stop, 2 for a configuration error or a refused bundle."""
+    from looma_pipeline.verify import resolve_bundle
+
+    try:
+        policy = Policy.from_env(env, settings)
+        loaded = load_service(resolve_bundle(settings, bundle), settings, policy)
+    except ValueError as exc:
+        log.error("configuration error", extra={"error": str(exc)})
+        return 2
+    except BundleRefused as exc:
+        log.error("bundle refused", extra={"error": str(exc)})
+        return 2
+    serve(loaded, Listen.from_env(env))
+    return 0
+
+
+def _stop(signum: int, _frame: object) -> None:
+    """SIGTERM ends the server like Ctrl+C; as PID 1 in a container the process ignores SIGTERM without a handler."""
+    raise SystemExit(128 + signum)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="looma-search", description="Verify a search bundle, then answer searches "
+                                     "over HTTP. Settings come from environment variables (docs/configuration.md).")
+    parser.add_argument("bundle", help="bundle folder name in data/bundles, or a path")
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    args = parser.parse_args(argv)
+    setup_logging(args.log_level)
+    signal.signal(signal.SIGTERM, _stop)
+    try:
+        settings = Settings.from_env()
+    except ConfigError as exc:
+        log.error("configuration error", extra={"error": str(exc)})
+        return 2
+    return run(args.bundle, settings, os.environ)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
