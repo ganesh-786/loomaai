@@ -54,6 +54,21 @@ CREDITS_SLIDES = [
     "श्रेय\nछोड्नुहोस्\nआशा द्वारा सम्पादन\n12/21/24",
     "क्रेडिट\nआशा द्वारा बनाइएको ६/१९/२०१९",
     "क्रेडिट\nनाम मिति\nआशा र बिना 6/19/19",
+    # Headings after a lesson code or title line, split over two lines, or with other by-line words
+    "6M17.01 Perimeter Credits\nAsha and Bina 6/12/2019",
+    "6M17.01 परिमिति क्रेडिट\nआशा र बिना 6/12/2019",
+    "6EN Field Trip: Credits\nMade by: Asha and Bina Date: 20/06/23\nTranslated by: firstname(s) Date: YYMMDD",
+    "6EN The World Cup: Lesson Credits\nMade by: Asha, Bina & Chandra Date: 20/06/23",
+    "4SS01.01 पाठ क्रेडिट\nबनाउने: आशा मिति 2020/07/11",
+    "5SS02.01-02\nCredits\nNames Date\nAsha and Bina 6/18/19",
+    "L\nLesson Credits\ne\nMade by Asha 6-26-19\nEdited by Bina",
+    "3S Animals and Seasons\nCredit\nMade by Asha 7/15/19",
+    "Lesson\nCredits\nMade by: Asha Date: 20/06/28\nTranslated by:",
+    "<----+----+----+---->\nLesson Credits\nThis last page acknowledges those who drafted and translated\neach lesson\nplan.",
+    "Final Song and Dance all over the World!\n\nCredits\nAuthor Unknown\nEdits Asha\n12/31/2024",
+    "Credits\nCreated by Asha",
+    "श्रेय\nआशा द्वारा सिर्जना गरिएको",
+    "By: Asha, Bina, and Chandra 7/20/20\nTranslated by: --- ----",
 ]
 
 # Lesson content that says "made by" or starts with a heading; it must stay searchable. The first four are real
@@ -69,6 +84,11 @@ CONTENT_SLIDES = [
     "Credit\nCredit is money that a bank lends and that must be paid back with interest.",
     "Made by hand: paper crafts of Nepal",
     "मानव द्वारा बनाइएको वातावरण",
+    "Extra Credit\nTrue or False:\ncan you figure this out?\nIf the edges of a cube double in length, the volume increases\n"
+    "by a factor of 8.",
+    "शब्दावली\n\nघरमा बनाइएको:\nघरमा बनाइएका चीजहरू\n\nतयार गरिएको:\nघर बाहिर बनाइएका चीजहरू",
+    "Buying on credit\nShops sell goods on credit. In 2020 many families bought rice this way.",
+    "By: Laxmi Prasad Devkota\nA short poem about the moon and the hills.",
 ]
 
 
