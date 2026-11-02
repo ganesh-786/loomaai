@@ -3,7 +3,7 @@ import pdf_fixtures as pf
 import pytest
 
 from looma_pipeline.extractors.captions import group_cues, parse_cues
-from looma_pipeline.extractors.database import game_pieces, lesson_pieces, title_pieces
+from looma_pipeline.extractors.database import game_pieces, is_credits_slide, lesson_pieces, title_pieces
 from looma_pipeline.extractors.html import read_html
 from looma_pipeline.extractors.ocr import TesseractOcr
 from looma_pipeline.extractors.pdf import extract_pages
@@ -29,6 +29,71 @@ def test_lesson_slides_lose_base64_images_and_keep_both_languages():
     assert "base64" not in pieces[0].text and "metres" in pieces[0].text
     assert pieces[1].expect_nepali and "मिटर" in pieces[1].text
     assert pieces[2].text == "Mass is measured in kilograms."
+
+
+# Wordings of real Lesson Credits slides, from a read-only survey of all 8,047 inline slides (2026-11-02).
+# People's names are replaced by placeholders.
+CREDITS_SLIDES = [
+    "Lesson Credits\nAcknowledgements of who drafted and translated this lesson.\n"
+    "Enter the first name(s) only, and the date completed.\nMade by: Asha Date:12 11 17\n"
+    "Translated by: first name(s). Date: YYMMDD",
+    "Lesson credits\nMade by: Asha Date: 241218\nTranslated by: No one Date:YYMMDD",
+    "पाठ क्रेडिट\nबनाइएको: आशा मिति: 210308\nअनुवादित: पहिलो नाम(हरू) मिति: YYMMDD",
+    "LP क्रेडिट\nआशा, बिना, र चन्द्र 03/05/2024",
+    "एलपी क्रेडिट\nआशा र बिना 6/14/19",
+    "Made By: Asha and Bina",
+    "Lesson made by Asha\nEdited by Bina",
+    "Made by Asha and Bina 6-25-19",
+    "आशा द्वारा बनाइएको",
+    "पाठ आशा द्वारा बनाइएको",
+    "बनाइएको: आशा",
+    "Credits\nEdited by Asha",
+    "Credit\nMade by Asha 6/19/2019",
+    "Credits\nAsha and Bina\nJuly 8, 2024\nW",
+    "श्रेय\nआशा र बिना\nजुलाई ८, २०२४\nW",
+    "श्रेय\nछोड्नुहोस्\nआशा द्वारा सम्पादन\n12/21/24",
+    "क्रेडिट\nआशा द्वारा बनाइएको ६/१९/२०१९",
+    "क्रेडिट\nनाम मिति\nआशा र बिना 6/19/19",
+]
+
+# Lesson content that says "made by" or starts with a heading; it must stay searchable. The first four are real
+# slides; the rest are edge cases the rule must not catch.
+CONTENT_SLIDES = [
+    "Final Song and Dance all over the World!\n\nWatch the next\njoyful\nvideo made by a man named Matt who\n"
+    "travelled all over the world dancing with people.",
+    "Farming Tools continued\nTo cut grass and tame animals, farmers need to use a:\nsickle\nrope\n"
+    "--a length of strong cord made by twisting together\nsmaller strands of something--grass, plastic, or more.",
+    "Class 4: Music, Musical Instruments video\nIn the next video, you will hear the sounds made by\n16 musical\n"
+    "instruments:",
+    "समीक्षा\nभिडियोमा बिरुवाको कुन भाग थियो?\nयो\nफूल\nथियो!",
+    "Credit\nCredit is money that a bank lends and that must be paid back with interest.",
+    "Made by hand: paper crafts of Nepal",
+    "मानव द्वारा बनाइएको वातावरण",
+]
+
+
+@pytest.mark.parametrize("text", CREDITS_SLIDES)
+def test_credits_slides_are_recognised(text):
+    assert is_credits_slide(text)
+
+
+@pytest.mark.parametrize("text", CONTENT_SLIDES)
+def test_lesson_content_is_not_mistaken_for_credits(text):
+    assert not is_credits_slide(text)
+
+
+def test_long_slides_are_never_credits():
+    assert not is_credits_slide("Credits\nMade by Asha\n" + "word " * 60)
+
+
+def test_lesson_credits_slides_are_not_indexed_in_either_language():
+    lesson = {"data": [
+        {"ft": "inline", "html": "<p>Mass is measured in kilograms.</p>", "nepali": "<p>पिण्ड किलोग्राममा नापिन्छ।</p>"},
+        {"ft": "inline", "html": "<div>&nbsp;Lesson Credits&nbsp;</div><div>Made by: Asha Date: 210308</div>",
+         "nepali": "<div>&nbsp;पाठ क्रेडिट&nbsp;</div><div>बनाइएको: आशा मिति: 210308</div>"},
+    ]}
+    pieces = lesson_pieces("item", lesson)
+    assert [(p.order, p.text) for p in pieces] == [(0, "Mass is measured in kilograms."), (0, "पिण्ड किलोग्राममा नापिन्छ।")]
 
 
 def test_game_prompts_are_paired_with_responses():
