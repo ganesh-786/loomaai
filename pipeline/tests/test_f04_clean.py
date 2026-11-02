@@ -30,6 +30,22 @@ def test_bom_keys_typos_and_language_variants_are_normalized(settings):
     assert (pdf.grade_lo, pdf.grade_hi, pdf.grade_source) == (6, 6, "chapter")
 
 
+def test_only_real_subjects_are_kept():
+    assert f04_clean.known_subject(" science ") == "Science"
+    assert f04_clean.known_subject("Math") == "Mathematics"
+    assert f04_clean.known_subject("Celebrating_Topi_Diwas.jpg") == ""  # a key1 value seen once in the database
+    assert f04_clean.known_subject(None) == ""
+
+
+def test_a_file_name_in_key1_does_not_become_the_subject(settings):
+    data = fx.looma_data()
+    video = next(a for a in data["activities"] if a["_id"] == fx.A_VID_UNITS)
+    video["key1"] = "Celebrating_Topi_Diwas.jpg"
+    ctx = RunContext.create(settings, "pilot", run_id="r")
+    items, _ = f04_clean.run(ctx, f01_snapshot.run(ctx, DictSource(data)), [])
+    assert items[fx.A_VID_UNITS].subject in f04_clean.KNOWN_SUBJECTS | {""}
+
+
 def test_chapter_items_include_their_own_chapter_and_grade(settings):
     _ctx, items, _ = _clean(settings)
     chapter = items[fx.A_CH_6S0102]
