@@ -54,6 +54,22 @@ def _free_port():
         return probe.getsockname()[1]
 
 
+# Libraries the looma-search image does not install (pipeline/requirements-serve.lock). Setting a sys.modules entry
+# to None makes importing it fail, as it would in that image.
+BUILD_ONLY_LIBRARIES = ("fitz", "pymupdf", "pymongo", "onnx", "pytest")
+
+
+def test_the_service_entry_point_needs_no_build_only_library():
+    script = ("import runpy, sys\n"
+              f"for name in {BUILD_ONLY_LIBRARIES!r}:\n"
+              "    sys.modules[name] = None\n"
+              "sys.argv = ['looma-search', '--help']\n"
+              "runpy.run_module('looma_pipeline.service', run_name='__main__')\n")
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert "bundle" in result.stdout
+
+
 def test_the_server_gives_parallel_requests_the_same_answers_as_one_at_a_time(engine):  # noqa: F811
     server = create_server(make_app(SearchService(engine, MANIFEST, Policy())), host="127.0.0.1", port=0, threads=4)
     threading.Thread(target=server.run, daemon=True).start()
