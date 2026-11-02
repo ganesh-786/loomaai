@@ -123,6 +123,20 @@ def test_grade_and_type_filters(engine):
     assert videos and all(h.ft == "video" for h in videos)
 
 
+def test_grade_window_keeps_bands_that_overlap_it(engine):
+    """Chapter search looks at the chapter's grade plus or minus a window; the units video is curated 6-7."""
+    exact = _ids(engine.search("units", Filters(grade=5, include_unknown_grade=False)))
+    window = _ids(engine.search("units", Filters(grade=5, grade_window=1, include_unknown_grade=False)))
+    assert fx.A_VID_UNITS not in exact and fx.A_VID_UNITS in window
+
+
+def test_subject_filter_accepts_several_subjects(engine):
+    science = _ids(engine.search("measuring tools units", Filters(subjects=frozenset({"Science"}))))
+    either = _ids(engine.search("measuring tools units", Filters(subjects=frozenset({"science", "Language"}))))
+    assert fx.A_VID_UNITS in science and fx.A_PDF_TOOLS not in science
+    assert {fx.A_VID_UNITS, fx.A_PDF_TOOLS} <= set(either)
+
+
 def test_hits_carry_their_best_passage(engine):
     hit = engine.search("Length is measured in metres")[0]
     assert hit.item_id == fx.A_LESSON and "metres" in hit.passage and hit.passage_id.startswith(fx.A_LESSON)
