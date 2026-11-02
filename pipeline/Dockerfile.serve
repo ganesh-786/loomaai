@@ -1,0 +1,35 @@
+# looma-search: the serve-plane image for a Looma Box or an online server (see docs/architecture.md).
+# Loads one signed bundle read-only, verifies it, and answers searches over HTTP on port 47200.
+# Only what search needs: no PyTorch, MongoDB client, PDF or OCR libraries, and no secrets or private keys.
+# Build from the repository root:  make search-image   (for an arm64 Box: make search-image-arm64)
+FROM python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HF_HUB_OFFLINE=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    ORT_DISABLE_TELEMETRY=1 \
+    PYTHONPATH=/app/pipeline \
+    PIPELINE_DATA_DIR=/data \
+    SEARCH_HOST=0.0.0.0 \
+    SEARCH_PORT=47200
+
+WORKDIR /app
+COPY pipeline/requirements-serve.lock /app/pipeline/requirements-serve.lock
+RUN pip install -r /app/pipeline/requirements-serve.lock
+
+COPY pipeline/looma_pipeline/ /app/pipeline/looma_pipeline/
+
+RUN useradd --uid 1000 --create-home search
+USER 1000
+EXPOSE 47200
+
+# Healthy once the bundle is verified and loaded; a failing bundle never starts the server.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('SEARCH_PORT', '47200'), timeout=4)"]
+
+# The service module imports only search code (cli.py would import the build stages and their PDF library).
+ENTRYPOINT ["python", "-m", "looma_pipeline.service"]
+CMD ["/bundle"]

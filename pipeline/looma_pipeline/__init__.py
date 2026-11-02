@@ -4,6 +4,12 @@ Stages F1 to F13 are described in docs/architecture.md. Run it with `python -m l
 inside the `looma-pipeline` image (see `make pipeline-image`).
 """
 
+import os
+
+# ONNX Runtime 1.31 sends telemetry over HTTPS when it loads unless this is set first; Looma makes no outside
+# connections (tests/test_no_phone_home.py). Set here so every entry point, with or without Docker, is covered.
+os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
+
 __version__ = "0.1.0"
 
 # Bundle layout version. Bump the major part when a serve-plane reader would need to change.
