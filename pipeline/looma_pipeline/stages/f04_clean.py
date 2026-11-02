@@ -31,6 +31,7 @@ SUBJECT_ALIASES = {
     "maths": "Mathematics", "language": "Language", "lamguage": "Language", "english": "English",
     "nepali": "Nepali", "health": "Health",
 }
+KNOWN_SUBJECTS = frozenset(SUBJECT_ALIASES.values())
 LANG_ALIASES = {"en": "en", "english": "en", "np": "np", "ne": "np", "nepali": "np", "both": "both"}
 TYPO_KEYS = ("cl_l0", "ch_lo", "ch_hi", "cj_id", "dnn")  # recorded, never guessed at
 _GRADE_PREFIX = re.compile(r"^grade\s+\d+\s+", re.IGNORECASE)
@@ -41,6 +42,12 @@ def normalize_subject(value: Any) -> str:
         return ""
     collapsed = " ".join(value.split())
     return SUBJECT_ALIASES.get(collapsed.lower(), collapsed)
+
+
+def known_subject(value: Any) -> str:
+    """The canonical subject for a known label, or "" for anything else (a file name was seen in key1)."""
+    subject = normalize_subject(value)
+    return subject if subject in KNOWN_SUBJECTS else ""
 
 
 def subject_from_chapters(chapter_ids: tuple[str, ...], snapshot: Snapshot) -> str:
@@ -77,7 +84,7 @@ def clean_item(doc: dict, snapshot: Snapshot, report_counts: Counter) -> Item:
 
     taxonomy = tuple(t for t in (normalize_subject(fields.get("key1")), *[
         " ".join(str(fields.get(k) or "").split()) for k in ("key2", "key3", "key4")]) if t)
-    subject = normalize_subject(fields.get("key1")) or subject_from_chapters(ch_ids, snapshot)
+    subject = known_subject(fields.get("key1")) or known_subject(subject_from_chapters(ch_ids, snapshot))
 
     return Item(
         item_id=str(fields["_id"]), ft=ft,
