@@ -37,12 +37,14 @@ DB_FILE = "meta/chunks.db"
 @dataclass(frozen=True)
 class Filters:
     """Empty sets / None mean "no restriction". Items without a grade band pass a grade filter only when
-    `include_unknown_grade` is set (the policy is open question S7)."""
+    `include_unknown_grade` is set (the policy is open question S7). With `grade_window` w, an item passes when its
+    band overlaps grade - w .. grade + w. Subjects compare without case."""
 
     types: frozenset[str] = frozenset()
     sources: frozenset[str] = frozenset()
-    subject: str | None = None
+    subjects: frozenset[str] = frozenset()
     grade: int | None = None
+    grade_window: int = 0
     include_unknown_grade: bool = True
     chapter_id: str | None = None
     cehrd_server: bool = False
@@ -111,11 +113,12 @@ class SearchEngine:
             mask &= np.isin(self.item_ft, list(filters.types))
         if filters.sources:
             mask &= np.isin(self.item_src, [s.lower() for s in filters.sources])
-        if filters.subject:
-            mask &= self.item_subject == filters.subject.lower()
+        if filters.subjects:
+            mask &= np.isin(self.item_subject, [s.lower() for s in filters.subjects])
         if filters.grade is not None:
             known = self.item_grade_lo >= 0
-            inside = known & (self.item_grade_lo <= filters.grade) & (filters.grade <= self.item_grade_hi)
+            low, high = filters.grade - filters.grade_window, filters.grade + filters.grade_window
+            inside = known & (self.item_grade_lo <= high) & (low <= self.item_grade_hi)
             mask &= inside | (~known if filters.include_unknown_grade else False)
         if filters.chapter_id is not None:
             in_chapter = np.zeros(len(self.item_ids), dtype=bool)
