@@ -76,7 +76,9 @@ class SearchEngine:
         self.bundle_dir = bundle_dir
         self.embedder = embedder
         self.vectors = from_int8(np.load(bundle_dir / VECTORS_FILE, allow_pickle=False))
-        self.db = sqlite3.connect(f"file:{bundle_dir / DB_FILE}?mode=ro", uri=True)
+        # The search service answers on worker threads, one search at a time behind its lock, so the read-only
+        # connection may be used by a thread other than the one that opened it.
+        self.db = sqlite3.connect(f"file:{bundle_dir / DB_FILE}?mode=ro", uri=True, check_same_thread=False)
         self.speller = Speller(self.db)
         if self.vectors.shape[1] != embedder.dims:
             raise ValueError(f"bundle vectors have {self.vectors.shape[1]} dims, the embedder {embedder.dims}")
