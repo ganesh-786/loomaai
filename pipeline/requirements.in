@@ -8,4 +8,6 @@ huggingface_hub          # download a pinned model revision
 PyMuPDF==1.24.13         # same PDF library version as appai/
 beautifulsoup4
 cryptography             # ed25519 bundle signatures
+waitress                 # WSGI server for the search service (pure Python; runs on ARM and Windows)
 pytest
+coverage                 # coverage gate for the tests

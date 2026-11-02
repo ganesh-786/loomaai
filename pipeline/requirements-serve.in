@@ -1,0 +1,9 @@
+# Dependencies of the looma-search service image (serve plane: Looma Box and online servers).
+# Only what search needs: no PyTorch, no MongoDB client, no PDF or OCR libraries. Versions are constrained to
+# requirements.lock so the service runs the same library versions the bundle was built and tested with.
+numpy
+onnxruntime
+tokenizers
+cryptography
+beautifulsoup4
+waitress

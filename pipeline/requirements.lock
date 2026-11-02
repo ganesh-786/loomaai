@@ -1,10 +1,12 @@
 # Exact versions of every package in the looma-pipeline image, frozen with pip freeze in
 # python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159 from requirements.in on 2026-11-01.
 # To update: change requirements.in, re-run the freeze in that image, review the diff.
+# 2026-11-02: added coverage and waitress on top of the lock above (no other version changed).
 anyio==4.15.1
 beautifulsoup4==4.15.0
 cffi==2.1.1
 click==8.5.0
+coverage==7.17.0
 cryptography==50.0.2
 dnspython==2.9.1
 filelock==4.2.6
@@ -35,3 +37,4 @@ tokenizers==0.23.3
 tqdm==4.70.1
 truststore==0.10.5
 typing_extensions==4.16.0
+waitress==3.0.2
