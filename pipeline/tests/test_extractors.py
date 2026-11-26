@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import looma_fixture as fx
 import pdf_fixtures as pf
 import pytest
@@ -6,7 +8,7 @@ from looma_pipeline.extractors.captions import group_cues, parse_cues
 from looma_pipeline.extractors.database import game_pieces, is_credits_slide, lesson_pieces, title_pieces
 from looma_pipeline.extractors.html import read_html
 from looma_pipeline.extractors.ocr import TesseractOcr
-from looma_pipeline.extractors.pdf import extract_pages
+from looma_pipeline.extractors.pdf import PdfPage, extract_pages, remove_repeated_lines
 from looma_pipeline.text.script import devanagari_share
 
 needs_tesseract = pytest.mark.skipif(not TesseractOcr.available(), reason="tesseract not installed")
@@ -167,6 +169,86 @@ def test_pdf_pages_keep_numbers_and_lose_running_headers(tmp_path):
     in_range = extract_pages(path, first_page=2, page_count=2)
     assert [p.number for p in in_range] == [2, 3]
     assert all(p.method == "text" for p in in_range)
+
+
+# Bottom lines of Grade 10 Science pages 77-114 as read from the book's OCR text layer (checked 2026-11-26). The
+# page-number badge and print marks come out as fragments glued to the footer, so no two copies are identical.
+FOOTERS_SEEN_IN_10S = ["Science and Technology, Grade 10 cm", "cm Science and Technology, Grade 10",
+                       "coe Science and Technology, Grade 10", "Science and Technology, Grade 10 &",
+                       "oo Science and Technology, Grade 10", "Science and Technology, Grade 10 105",
+                       "102 Science and Technology, Grade 10", "Science and Technology, Grade 10 —",
+                       "“100 Science and Technology, Grade 10", "Science and Technology, Grade 10"]
+TOPICS = ["chromosomes", "genes", "alleles", "traits", "zygotes", "gametes", "hybrids", "variation", "mutation",
+          "dominance"]
+
+
+def _book(footers: list[str]) -> list[PdfPage]:
+    """One page per footer: three body lines that differ in their words, then the footer."""
+    return [PdfPage(77 + i, f"Chapter text about {topic} starts here.\nStudents observe {topic} in the lab.\n"
+                            f"Questions about {topic} follow.\n{footer}", "text")
+            for i, (topic, footer) in enumerate(zip(TOPICS, footers))]
+
+
+def test_ocr_fragments_glued_to_a_running_footer_do_not_hide_it():
+    cleaned = remove_repeated_lines(_book(FOOTERS_SEEN_IN_10S))
+    assert [p.text.count("Technology") for p in cleaned] == [0] * 10
+    assert all(len(p.text.splitlines()) == 3 for p in cleaned)  # the three body lines stay
+
+
+def test_an_ocr_misspelled_running_footer_at_the_page_edge_is_removed():
+    # page 108 of the book reads "104 Sciénco:and Technology, Grade10"
+    footers = ["Science and Technology, Grade 10"] * 9 + ["104 Sciénco:and Technology, Grade10"]
+    cleaned = remove_repeated_lines(_book(footers))
+    assert cleaned[-1].text.splitlines() == ["Chapter text about dominance starts here.",
+                                             "Students observe dominance in the lab.",
+                                             "Questions about dominance follow."]
+
+
+def test_nepali_running_footer_with_ocr_fragments_is_removed():
+    lines = ["कोषको केन्द्रकमा क्रोमोजोम हुन्छन्।", "जीनले आमाबुबाको गुण सन्तानमा सार्छ।",
+             "मेन्डलले केराउको बिरुवामा प्रयोग गरे।", "डीएनए दोहोरो कुण्डली आकारको हुन्छ।",
+             "लिङ्ग निर्धारण क्रोमोजोमले गर्छ।"]
+    footers = ["विज्ञान तथा प्रविधि, कक्षा १० cm", "co विज्ञान तथा प्रविधि, कक्षा १०",
+               "विज्ञान तथा प्रविधि, कक्षा १० ८७", "८८ विज्ञान तथा प्रविधि, कक्षा १०",
+               "विज्ञान तथा प्रविधि, कक्षा १० &"]
+    pages = [PdfPage(n + 1, f"{lines[n]}\n{lines[(n + 1) % 5]}\n{footers[n]}", "text") for n in range(5)]
+    cleaned = remove_repeated_lines(pages)
+    assert all("विज्ञान" not in p.text for p in cleaned)
+    assert cleaned[0].text.splitlines() == [lines[0], lines[1]]
+
+
+def test_pdf_with_noisy_running_footers_loses_them(tmp_path):
+    footers = FOOTERS_SEEN_IN_10S[:6]  # the ASCII ones: the test PDF font has no curly quote or long dash
+    path = pf.text_pdf(tmp_path / "book.pdf", [[f"Chapter text about {topic} starts here.",
+                                                f"Students observe {topic} in the lab.", footer]
+                                               for topic, footer in zip(TOPICS, footers)])
+    pages = extract_pages(path)
+    assert all("Technology" not in p.text and "Students observe" in p.text for p in pages)
+
+
+def test_a_running_footer_followed_by_figure_labels_is_still_removed():
+    pages = _book(["Science and Technology, Grade 10"] * 10)
+    pages[3] = replace(pages[3], text=pages[3].text + '\n° 10 " 2\nXY XX')  # labels after the footer, as on page 87
+    assert "Technology" not in remove_repeated_lines(pages)[3].text
+
+
+def test_body_lines_that_mention_the_footer_words_are_kept():
+    pages = _book(["Science and Technology, Grade 10 cm"] * 10)
+    pages[0] = replace(pages[0], text="Science and technology help farmers grow more food.\n" + pages[0].text)
+    assert remove_repeated_lines(pages)[0].text.startswith("Science and technology help farmers grow more food.")
+
+
+def test_an_edge_heading_on_few_pages_is_kept():
+    pages = _book(["Science and Technology, Grade 10"] * 10)
+    for i in (2, 7):
+        pages[i] = replace(pages[i], text="Exercise\n" + pages[i].text)
+    cleaned = remove_repeated_lines(pages)
+    assert cleaned[2].text.startswith("Exercise\n") and cleaned[7].text.startswith("Exercise\n")
+
+
+def test_running_lines_without_long_words_still_match_exactly():
+    pages = [replace(p, text=f"p. {p.number}\n{p.text}") for p in _book(["Science and Technology, Grade 10"] * 10)]
+    assert all(not p.text.startswith("p.") for p in remove_repeated_lines(pages))
 
 
 @needs_tesseract
