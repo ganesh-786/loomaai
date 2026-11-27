@@ -2,9 +2,10 @@
 
 Import only; reads one PDF. Each page keeps its 1-based page number, so a passage can link to `?page=` in Looma's
 PDF viewer. A page whose text layer has fewer than `min_letters` letters is sent to OCR (when an OCR engine is
-given). Cleanup after extraction:
-- lines that repeat at the top or bottom of most pages (running headers and footers) are removed. Lines are compared
-  by their words of 4 or more letters, so page numbers and OCR fragments glued to a footer ("cm", "coe", "&" read from
+given), unless the caller lists it in `skip_ocr` because a page transcript replaces it. Cleanup after extraction:
+- lines that repeat at the top or bottom of most pages that have text (running headers and footers) are removed.
+  Lines are compared by their words of 4 or more letters, so page numbers and OCR fragments glued to a footer
+  ("cm", "coe", "&" read from
   the page-number badge of a scanned book) do not make its copies look different; a line at the page edge that is at
   least 85% similar to a running header or footer (an OCR misspelling) is removed too;
 - lines that are only a page number are removed;
@@ -75,13 +76,19 @@ def _is_running_line(key: str, at_edge: bool, repeated: set[str]) -> bool:
 
 
 def remove_repeated_lines(pages: list[PdfPage]) -> list[PdfPage]:
-    """Drop running headers/footers, bare page numbers, and hyphenated line breaks."""
-    if len(pages) >= 3:
+    """Drop running headers/footers, bare page numbers, and hyphenated line breaks.
+
+    The share of pages a running line must appear on is taken over pages that have text. Pages without text
+    (scanned pages without OCR, or pages whose OCR was skipped because a transcript replaces them) cannot carry a
+    footer, so counting them would hide real footers on the other pages.
+    """
+    with_text = [page for page in pages if page.text.strip()]
+    if len(with_text) >= 3:
         edges = Counter()
-        for page in pages:
+        for page in with_text:
             lines = [ln for ln in page.text.splitlines() if ln.strip()]
             edges.update({_edge_key(ln) for ln in lines[:EDGE_LINES] + lines[-EDGE_LINES:]})
-        repeated = {key for key, n in edges.items() if n >= REPEATED_LINE_SHARE * len(pages)}
+        repeated = {key for key, n in edges.items() if n >= REPEATED_LINE_SHARE * len(with_text)}
     else:
         repeated = set()
     cleaned = []
@@ -95,8 +102,21 @@ def remove_repeated_lines(pages: list[PdfPage]) -> list[PdfPage]:
 
 
 def extract_pages(path: Path, first_page: int | None = None, page_count: int | None = None,
-                  ocr: TesseractOcr | None = None, min_letters: int = MIN_LETTERS_FOR_TEXT_LAYER) -> list[PdfPage]:
+                  ocr: TesseractOcr | None = None, min_letters: int = MIN_LETTERS_FOR_TEXT_LAYER,
+                  skip_ocr: frozenset[int] = frozenset()) -> list[PdfPage]:
     """Text of pages `first_page` .. `first_page + page_count - 1` (1-based; default: every page).
+
+    Args:
+        path: the PDF file.
+        first_page: 1-based first page; default 1.
+        page_count: number of pages; default to the end of the file.
+        ocr: OCR engine for pages with fewer than `min_letters` letters; None turns OCR off.
+        min_letters: below this many letters a page is treated as scanned.
+        skip_ocr: 1-based pages never sent to OCR, because a page transcript replaces their text (F3). OCR costs
+            seconds per page; on a scanned book with transcripts that time would be thrown away.
+
+    Returns:
+        One PdfPage per page, after running header/footer cleanup.
 
     Raises:
         RuntimeError: from PyMuPDF if the file is not a readable PDF.
@@ -109,7 +129,7 @@ def extract_pages(path: Path, first_page: int | None = None, page_count: int | N
         for number in range(start, end + 1):
             page = document.load_page(number - 1)
             text, method = page.get_text("text"), "text"
-            if _letters(text) < min_letters and ocr is not None:
+            if _letters(text) < min_letters and ocr is not None and number not in skip_ocr:
                 text, method = ocr.page_text(page), "ocr"
             pages.append(PdfPage(number, text, method if text.strip() else "empty"))
     return remove_repeated_lines(pages)

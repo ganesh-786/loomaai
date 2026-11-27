@@ -100,10 +100,13 @@ PIPELINE_IMAGE ?= looma-pipeline:dev
 PIPELINE_CONTENT_DIR ?= /usr/local/var/www/content
 SCOPE ?= pilot
 KEEP ?= 2
+# 1 also uses page transcripts nobody has reviewed yet (data/transcripts/*.jsonl); keep 0 for real bundles.
+TRANSCRIPTS_ALLOW_UNREVIEWED ?= 0
 PIPELINE_DOCKER = docker run --rm --network loomanet --memory 2g \
 	--user $(shell id -u):$(shell id -g) \
 	-v $(CURDIR)/data:/data -v $(PIPELINE_CONTENT_DIR):/content:ro \
-	-e PIPELINE_GIT_SHA=$(shell git rev-parse --short HEAD)
+	-e PIPELINE_GIT_SHA=$(shell git rev-parse --short HEAD) \
+	-e TRANSCRIPTS_ALLOW_UNREVIEWED=$(TRANSCRIPTS_ALLOW_UNREVIEWED)
 
 .PHONY: pipeline-image pipeline-test pipeline-info pipeline-build pipeline-model pipeline-keygen \
 	pipeline-verify pipeline-search pipeline-e2e pipeline-eval-typos pipeline-clean

@@ -80,6 +80,8 @@ class Settings:
     chunk_overlap_tokens: int
     ocr_enabled: bool
     ocr_langs: str
+    transcripts_dir: Path               # page transcripts used in place of PDF text (issue #2)
+    transcripts_allow_unreviewed: bool  # off by default: AI output is a suggestion until a person reviews it
     looma_web_url: str
     signing_key_path: Path
     signing_pubkey_path: Path
@@ -137,6 +139,8 @@ class Settings:
             chunk_overlap_tokens=_int(env, "CHUNK_OVERLAP_TOKENS", 32, minimum=0),
             ocr_enabled=_bool(env, "OCR_ENABLED", True),
             ocr_langs=_text(env, "OCR_LANGS", "eng+nep"),
+            transcripts_dir=Path(_text(env, "TRANSCRIPTS_DIR", str(data_dir / "transcripts"))),
+            transcripts_allow_unreviewed=_bool(env, "TRANSCRIPTS_ALLOW_UNREVIEWED", False),
             looma_web_url=_text(env, "LOOMA_WEB_URL", "http://looma-web:8080").rstrip("/"),
             signing_key_path=Path(_text(env, "SIGNING_KEY_PATH", str(data_dir / "keys" / "release-ed25519.key"))),
             signing_pubkey_path=Path(
@@ -182,6 +186,8 @@ class Settings:
             "chunk_tokens": f"target {self.chunk_target_tokens}, max {self.chunk_max_tokens}, "
             f"overlap {self.chunk_overlap_tokens}",
             "ocr": f"{'on' if self.ocr_enabled else 'off'} ({self.ocr_langs})",
+            "transcripts": f"{self.transcripts_dir} "
+            f"(unreviewed {'allowed' if self.transcripts_allow_unreviewed else 'not used'})",
             "looma_web_url": self.looma_web_url,
             "git_sha": self.git_sha,
         }
