@@ -28,11 +28,16 @@ Last verified: 2026-11-01 at 98f8a807
 | `pytest` in the pipeline image | 2026-11-27 | ca66da95 | 333 passed, 0 failed, 0 skipped (model and MongoDB available) | console |
 | `e2e --scope all`, empty content folder | 2026-11-27 | ca66da95 | all decided gates pass (G1-G7, G9); G8 not run (see below); 0 files found, so no PDF text | `data/runs/e2e-20261127T053206Z/` (not in Git) |
 | `e2e --scope all`, content sample mounted | 2026-11-27 | ca66da95 | all decided gates pass (G1-G7, G9); 21 files found; 466 text-layer pages and 1 OCR page; peak 1,684 MB; search p50 13.4 ms, p95 33.5 ms (not Box numbers) | `data/runs/e2e-20261127T053742Z/` (not in Git) |
+| Red check, page transcripts (issue #2) | 2026-11-27 | 33e44208 | new tests fail on the code before the change: 5 failed, 2 test modules cannot import `extractors.transcripts`; 330 others pass | console |
+| `pytest` in the pipeline image | 2026-11-27 | 1730c33d | 374 passed, 0 failed, 0 skipped | console |
+| `build --scope all --until f03`, content sample, run D's 44 unreviewed transcript rows, `TRANSCRIPTS_ALLOW_UNREVIEWED=1` | 2026-11-27 | 1730c33d | 44 rows used, 44 transcript pages, 0 stale, 0 unmatched, 0 malformed, 0 problems; OCR skipped (0 OCR pages) | `data/runs/20261127T054511Z-all-ad90/` (not in Git) |
+| the same with the default `TRANSCRIPTS_ALLOW_UNREVIEWED=0` | 2026-11-27 | 1730c33d | 44 rows skipped as unreviewed, 0 transcript pages; the page that needs OCR went to OCR (1 OCR page) | `data/runs/20261127T054525Z-all-defa/` (not in Git) |
 
 The content sample is `data/content/` in the main checkout: Grade 10 Science `Science_10_0016.pdf` and two PhET
 guides, with sources and sha256 in its `manifest.json`. The Makefile's default content folder
-(`/usr/local/var/www/content`) is empty on the development machine. Both runs on 2026-11-27 used the image built
-2026-11-02 with `pipeline/` mounted read only (its `requirements.lock` is unchanged since that build).
+(`/usr/local/var/www/content`) is empty on the development machine. All runs on 2026-11-27 used the image built
+2026-11-02 with `pipeline/` mounted read only (its `requirements.lock` is unchanged since that build). Build runs with
+the content sample mount it read only at `/content`.
 
 G8 was not run on 2026-11-27: `looma-web` answered HTTP 404 for `looma-database-utilities.php` and 403 for its home
 page, because the running container serves no Looma-II PHP files. That is the local Looma-II setup, not the

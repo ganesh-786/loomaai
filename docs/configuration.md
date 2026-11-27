@@ -27,6 +27,8 @@ Read once by `pipeline/looma_pipeline/config.py`. Defaults work inside the `loom
 | `CHUNK_OVERLAP_TOKENS` | `32` | pipeline config | tokens repeated between passages | `32` | no |
 | `OCR_ENABLED` | `1` | pipeline config | OCR for scanned PDF pages | `0` | no |
 | `OCR_LANGS` | `eng+nep` | pipeline config | Tesseract languages | `nep` | no |
+| `TRANSCRIPTS_DIR` | `<PIPELINE_DATA_DIR>/transcripts` | pipeline config | folder of page transcripts (`*.jsonl`, one PDF page per line, matched by the PDF's sha256 and page) that F3 uses in place of the PDF's text; an empty or missing folder means none | default | no |
+| `TRANSCRIPTS_ALLOW_UNREVIEWED` | `0` | pipeline config | `1` also uses rows with `review_status: unreviewed`; rows marked `rejected` are never used. Keep `0` for real bundles: AI-made text stays a suggestion until a person reviews it | `1` (tests only) | no |
 | `LOOMA_WEB_URL` | `http://looma-web:8080` | pipeline config | today's search, for the G8 comparison | same | no |
 | `SIGNING_KEY_PATH` | `<PIPELINE_DATA_DIR>/keys/release-ed25519.key` | pipeline config | private key that signs bundles | default | **yes**: never commit or share it |
 | `SIGNING_PUBKEY_PATH` | `<PIPELINE_DATA_DIR>/keys/release-ed25519.pub` | pipeline config | trusted public key for `verify` | default | no |
@@ -48,6 +50,7 @@ Read once by `pipeline/looma_pipeline/config.py`. Defaults work inside the `loom
 | `APPLY` | empty | `1` makes `make pipeline-clean` delete; otherwise it only lists |
 | `SEARCH_BUNDLE` | none | bundle folder in `data/bundles/` that `make search-up` serves |
 | `SEARCH_IMAGE` | `looma-search:dev` | tag of the search service image |
+| `TRANSCRIPTS_ALLOW_UNREVIEWED` | `0` | passed to the pipeline container as the environment variable of the same name |
 
 ## Environment variables: search service
 
@@ -96,7 +99,7 @@ copies `.env` into the image, so `.env` must not contain real keys. The pipeline
 
 | Host path | Mounted at | Holds | Size measured |
 |---|---|---|---|
-| `data/` | `/data` (pipeline) | `data/runs/`, `data/cache/embeddings.sqlite`, `data/models/`, `data/bundles/`, `data/keys/` | models 0.6 GB (1.1 GB if prepared before `e6da198e`, which copied the download instead of linking it); cache 82 MB; each full-scope build adds about 92 MB, see [install-and-run.md](install-and-run.md) |
+| `data/` | `/data` (pipeline) | `data/runs/`, `data/cache/embeddings.sqlite`, `data/models/`, `data/bundles/`, `data/keys/`, `data/transcripts/` | models 0.6 GB (1.1 GB if prepared before `e6da198e`, which copied the download instead of linking it); cache 82 MB; each full-scope build adds about 92 MB, see [install-and-run.md](install-and-run.md) |
 | Looma's content folder | `/content`, read only | PDFs, captions, HTML | empty on the development machine |
 
 ## Models and index bundles

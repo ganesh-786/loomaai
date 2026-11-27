@@ -95,7 +95,7 @@ Pipeline building blocks:
 |---|---|---|---|
 | F1 snapshot | `pipeline/looma_pipeline/stages/f01_snapshot.py` | MongoDB (read only) | in-scope raw records, snapshot id and hash, curated-field checksum |
 | F2 content map | `pipeline/looma_pipeline/stages/f02_content_map.py` | raw records, content folder | for each item: the file Looma would open, or why there is none |
-| F3 extract | `pipeline/looma_pipeline/stages/f03_extract.py` + `pipeline/looma_pipeline/extractors/` | raw records, content map | text pieces with page or time |
+| F3 extract | `pipeline/looma_pipeline/stages/f03_extract.py` + `pipeline/looma_pipeline/extractors/` | raw records, content map, page transcripts (`data/transcripts/`) | text pieces with page or time |
 | F4 clean | `pipeline/looma_pipeline/stages/f04_clean.py` | raw records, text pieces | normalized items (grades, chapter ids, language, CEHRD flag) |
 | F5 Nepali check | `pipeline/looma_pipeline/stages/f05_nepali.py` | text pieces | language by script; Preeti conversion for legacy-font files |
 | F6 chunk | `pipeline/looma_pipeline/stages/f06_chunk.py` | text pieces | small passages with stable ids `<item>:<lang>:<n>` |
@@ -140,6 +140,22 @@ search then embeds the corrected query and the word search looks for both wordin
 never changed, and real words typed by mistake ("plan" for "plant") are left alone; the evidence is in
 [the typo tolerance experiment](experiments/2026-11-01-typo-tolerance.md). F9 searches chapter titles exactly as
 written. Bundle schema 1.1 adds the spelling tables; a 1.1 reader treats a 1.0 bundle as having no correction.
+
+### PDF pages with a page transcript
+```
+ PDF page (file sha256, page)
+   ├─ usable transcript row? ── yes ─> transcript text ──────────────────┐   OCR skipped for this page
+   │     (reviewed; or unreviewed with TRANSCRIPTS_ALLOW_UNREVIEWED=1)    │
+   └─ no ─> text layer / OCR ─> running header and footer cleanup ────────┤
+                                                                          ▼
+                                                              F6 passage with its page
+```
+- Rows are matched by the PDF file's sha256 and 1-based page, so a replaced PDF never picks up an old transcript;
+  such rows are reported as stale. Rejected rows are never used. For one page, a reviewed row replaces unreviewed
+  ones; two different texts with the same status are both dropped and the page keeps its PDF text.
+- F3 stops the run when a transcript file cannot be read or more than 1% of its rows are malformed.
+- `pipeline/looma_pipeline/extractors/transcripts.py` reads the files; `pipeline/looma_pipeline/stages/f03_extract.py`
+  uses them and reports used, stale, unmatched and malformed rows in the run folder's `f03_extract.json`.
 
 ## 7. Deployment
 
@@ -209,6 +225,7 @@ These gates show the pipeline is correct, safe and repeatable. They do not measu
 | Risk | Impact | Plan |
 |---|---|---|
 | File extractors are not validated on real Looma content | text quality unknown for PDFs, captions, HTML | rerun F3 to F5 when content arrives (open question S1) |
+| Page transcripts are AI-made and none is reviewed yet | wrong text could reach students if `TRANSCRIPTS_ALLOW_UNREVIEWED=1` is used for a real bundle | default `0`; a review step is still to be agreed |
 | The Preeti converter (`npttf2utf/`) is GPL-3.0 | licensing question for redistribution | recorded for Skip; it is used only on the build plane |
 | Debian packages in the image (Tesseract, fonts) are not version-pinned | rebuilds can change OCR output | pinned base image digest; pin packages before release |
 | Grade bands are provisional (age rule is open question S7) | filters may change | grade logic is isolated in `pipeline/looma_pipeline/grades.py` |
