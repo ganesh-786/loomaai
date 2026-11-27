@@ -1,9 +1,9 @@
-"""Ingest Looma PDFs page by page: the plumbing step (fork issue #2).
+"""Ingest Looma PDFs page by page: plumbing and cleaning (fork issues #2, #3).
 
 What: for textbook chapters (their English page range), `pdf` and `worksheet` activities, reads each page from a
-local copy of Looma's content folder, uses a reviewed transcript for a page when one exists, and writes one JSON
-record per page with its provenance (file, sha256, PDF page, text method, review status), plus a run report.
-The text is kept exactly as read; this step does not clean it.
+local copy of Looma's content folder, uses a reviewed transcript for a page when one exists, cleans the text
+and writes one JSON record per page with its provenance (file, sha256, PDF page, text method, review status) and
+what the cleaning did, plus a run report that lists every removed line and hyphen decision.
 Why: main's embed path downloads every PDF, joins its pages, and writes cl_lo/cl_hi back into Mongo. This step
 keeps page numbers and provenance, writes nothing to Mongo or Qdrant, and leaves embed.py unchanged.
 How (build plane only; the Looma Box never runs it):
@@ -42,6 +42,7 @@ from pymongo.errors import PyMongoError
 from ..common.activity import PageSourceError, extract_page_texts
 from ..common.activity_chapter import ChapterActivity
 from ..common.activity_pdf import PdfActivity
+from ..common.text_cleaning import clean_text_layer_pages, clean_transcript_text
 from ..common.transcripts import load_transcript_runs
 
 logger = logging.getLogger(__name__)
@@ -130,7 +131,7 @@ def _activity_for(item: dict):
 
 
 def page_record(*, run_id: str, item: dict, base: dict, lang: str | None, relative_path: str, file_sha256: str,
-                pdf_page: int, text: str, fallback_reason: str | None, transcript) -> dict:
+                pdf_page: int, text: str, fallback_reason: str | None, transcript, cleaning: dict) -> dict:
     """Builds one page record (schema looma.pdf_page/1) with the provenance of its text.
 
     Args:
@@ -139,9 +140,10 @@ def page_record(*, run_id: str, item: dict, base: dict, lang: str | None, relati
         base: the activity's payload() (collection, source_id, title) as embed.py already uses it.
         lang: the language read ("en" for a chapter's English textbook pages; activities.lang otherwise).
         relative_path / file_sha256 / pdf_page: the source file and page.
-        text: the page text as read (transcript or text layer).
+        text: the cleaned text.
         fallback_reason: why the text layer was used instead of a transcript, or None.
         transcript: the TranscriptPage used, or None.
+        cleaning: what the cleaning step did to this page.
 
     Returns:
         The record dict; "checked" is True only for an approved transcript.
@@ -160,23 +162,25 @@ def page_record(*, run_id: str, item: dict, base: dict, lang: str | None, relati
                         "line": transcript.line_no} if transcript else None),
         "review_status": review_status,
         "checked": review_status == "approved",
+        "cleaning": cleaning,
         "quality": {"chars": len(text), "words": len(text.split())},
     }
 
 
 def ingest_item(item: dict, db, content_dir: str, transcripts, allow_unreviewed: bool,
-                run_id: str) -> tuple[list[dict], dict]:
-    """Reads the pages of one activity and builds one record per page.
+                run_id: str) -> tuple[list[dict], dict, dict]:
+    """Reads and cleans the pages of one activity and builds one record per page.
 
     Returns:
-        (page records, item report).
+        (page records, item report, cleaning details {"removed_lines", "hyphens"} with PDF page numbers).
     """
     report = {"item_id": str(item["_id"]), "ft": item.get("ft"), "dn": item.get("dn"), "status": "ok",
               "reason": None, "detail": None, "pages": 0}
+    details = {"removed_lines": [], "hyphens": []}
 
-    def stop(reason: str, detail: str) -> tuple[list[dict], dict]:
+    def stop(reason: str, detail: str) -> tuple[list[dict], dict, dict]:
         report.update(status="skipped" if reason in SKIP_REASONS else "failed", reason=reason, detail=detail)
-        return [], report
+        return [], report, details
 
     if item.get("ft") not in ITEM_TYPES:
         return stop("type_not_in_scope", str(item.get("ft")))
@@ -201,19 +205,32 @@ def ingest_item(item: dict, db, content_dir: str, transcripts, allow_unreviewed:
 
     file_sha256 = hashlib.sha256(data).hexdigest()
     pdf_pages = list(range(source.first_page, source.first_page + len(texts)))
+    cleaned, cleaning = clean_text_layer_pages(texts)
     base = activity.payload() if "dn" in item else {"collection": "activities", "source_id": str(item["_id"]),
                                                      "title": None}
     records, methods = [], Counter()
     for index, pdf_page in enumerate(pdf_pages):
         choice = transcripts.choose(source.relative_path, file_sha256, pdf_page, allow_unreviewed)
+        removed = [r for r in cleaning["removed_lines"] if r["page_index"] == index]
+        hyphens = [h for h in cleaning["hyphens"] if h["page_index"] == index]
+        details["removed_lines"] += [{"pdf_page": pdf_page, "line": r["line"], "rule": r["rule"]} for r in removed]
+        details["hyphens"] += [{"pdf_page": pdf_page, "parts": h["parts"], "result": h["result"]} for h in hyphens]
+        if choice.page:
+            text, markers = clean_transcript_text(choice.page.text)
+            page_cleaning = {"markers": markers}
+        else:
+            text = cleaned[index]
+            page_cleaning = {"lines_removed": len(removed),
+                             "hyphens_joined": sum(1 for h in hyphens if h["result"] == "joined"),
+                             "hyphens_kept": sum(1 for h in hyphens if h["result"] == "kept_hyphen")}
         records.append(page_record(
             run_id=run_id, item=item, base=base, lang=lang, relative_path=source.relative_path,
-            file_sha256=file_sha256, pdf_page=pdf_page, text=choice.page.text if choice.page else texts[index],
-            fallback_reason=choice.fallback_reason, transcript=choice.page))
+            file_sha256=file_sha256, pdf_page=pdf_page, text=text,
+            fallback_reason=choice.fallback_reason, transcript=choice.page, cleaning=page_cleaning))
         methods[records[-1]["text_method"]] += 1
     report.update(pages=len(records), file=source.relative_path, file_sha256=file_sha256,
                   page_range=[pdf_pages[0], pdf_pages[-1]], methods=dict(methods))
-    return records, report
+    return records, report, details
 
 
 def _content_sha256(records: list[dict]) -> str:
@@ -262,27 +279,36 @@ def run(args: argparse.Namespace, db) -> int:
         return 2
     transcripts = load_transcript_runs(args.transcripts)
 
-    records = []
+    records, removed_lines, hyphens = [], [], []
     for item in items:
-        item_records, item_report = ingest_item(item, db, content_dir, transcripts, args.allow_unreviewed, run_id)
+        item_records, item_report, details = ingest_item(item, db, content_dir, transcripts,
+                                                         args.allow_unreviewed, run_id)
         records += item_records
         item_reports.append(item_report)
+        removed_lines += [dict(d, item_id=item_report["item_id"]) for d in details["removed_lines"]]
+        hyphens += [dict(d, item_id=item_report["item_id"]) for d in details["hyphens"]]
         if item_report["status"] != "ok":
             logger.info("%s %s: %s (%s)", item_report["status"], item_report["item_id"], item_report["reason"],
                         item_report["detail"])
 
+    markers = Counter()
+    for record in records:
+        markers.update(record["cleaning"].get("markers", {}))
     counts = {
         "items": dict(Counter(r["status"] for r in item_reports)),
         "item_reasons": dict(Counter(r["reason"] for r in item_reports if r["reason"])),
         "pages_by_method": dict(Counter(r["text_method"] for r in records)),
         "fallback_reasons": dict(Counter(r["fallback_reason"] for r in records if r["fallback_reason"])),
+        "markers": dict(markers),
+        "lines_removed": dict(Counter(line["rule"] for line in removed_lines)),
+        "hyphens": dict(Counter(h["result"] for h in hyphens)),
         "review_status": dict(Counter(r["review_status"] for r in records)),
-        "empty_pages": sum(1 for r in records if not r["text"].strip()),
+        "empty_pages": sum(1 for r in records if not r["text"]),
     }
-    # A page with no text (an image-only page) keeps its record for traceability; the list tells the next step
-    # (chunking) and a reviewer which pages need another source.
+    # A page whose text layer held only the footer (10S04 p93 is a concept-map image) keeps its record for
+    # traceability; the list tells the next step (chunking) and a reviewer which pages need another source.
     empty_pages = [{"item_id": r["source"]["item_id"], "pdf_page": r["source"]["pdf_page"],
-                    "text_method": r["text_method"]} for r in records if not r["text"].strip()]
+                    "text_method": r["text_method"]} for r in records if not r["text"]]
     report = {
         "run_id": run_id, "schema": SCHEMA, "dry_run": not args.write,
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
@@ -293,7 +319,7 @@ def run(args: argparse.Namespace, db) -> int:
                    "activity_id": args.activity_id, "all": args.all, "mongo_db": args.mongo_db},
         "transcript_runs": transcripts.runs, "transcript_problems": transcripts.problems,
         "counts": counts, "records": len(records), "content_sha256": _content_sha256(records),
-        "items": item_reports, "empty_pages": empty_pages,
+        "items": item_reports, "removed_lines": removed_lines, "hyphens": hyphens, "empty_pages": empty_pages,
         "duration_s": round(time.monotonic() - started, 2),
         "peak_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
         "cost_note": "dev-machine numbers, not Box numbers",
