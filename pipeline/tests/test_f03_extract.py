@@ -223,3 +223,14 @@ def test_transcript_markers_are_cleaned_and_counted(settings):
     assert (counts["transcript_markers_figure_caption"], counts["transcript_markers_figure_text"],
             counts["transcript_markers_cut_off"], counts["transcript_markers_blank"]) == (1, 1, 1, 1)
 
+
+def test_pages_record_how_their_text_was_made(settings):
+    sha = _tools_pdf(settings)
+    _write_transcripts(settings, [{"file_sha256": sha, "page": 2, "text": "A balance measures mass.",
+                                   "printed_page": "ii"}])
+    _ctx, pieces = _extract(settings)
+    first, second = _by_item(pieces, fx.A_PDF_TOOLS, "document")
+    assert first.text_method in ("text", "ocr") and (first.source_run, first.review_status) == ("", "")
+    assert first.printed_page is None
+    assert (second.text_method, second.source_run, second.source_model, second.review_status,
+            second.printed_page) == ("transcript", "D-test", "test-model", "reviewed", "ii")

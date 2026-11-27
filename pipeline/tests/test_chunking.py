@@ -70,3 +70,12 @@ def test_passage_ids_are_stable_per_item_and_language():
 def test_pieces_without_letters_are_dropped():
     passages, counts = make_passages([TextPiece("a", "lesson", 0, "123 456")], WS, 20, 30, 5)
     assert passages == [] and counts["dropped_no_letters"] == 1
+
+
+def test_every_passage_keeps_the_page_metadata_of_its_piece():
+    piece = TextPiece("a", "textbook", 77, _sentences(10), page=77, printed_page="73", text_method="transcript",
+                      source_run="D-test", source_model="test-model", review_status="unreviewed")
+    passages, _counts = make_passages([piece], WS, 20, 30, 5)
+    assert len(passages) > 1
+    assert {(p.page, p.printed_page, p.text_method, p.source_run, p.source_model, p.review_status)
+            for p in passages} == {(77, "73", "transcript", "D-test", "test-model", "unreviewed")}

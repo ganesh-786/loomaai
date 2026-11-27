@@ -176,3 +176,51 @@ def test_a_schema_1_0_bundle_still_verifies_and_searches_without_spelling_help(s
         assert result.spelling.changes == () and result.hits
     finally:
         engine.close()
+
+
+PAGE_METADATA_COLUMNS = ("printed_page", "text_method", "source_run", "source_model", "review_status")
+
+
+def test_passages_carry_page_metadata_and_the_schema_says_1_2(settings, fake_model_dir):
+    bundle = _bundle(settings, fake_model_dir)
+    assert json.loads((bundle / MANIFEST_FILE).read_text())["schema_version"] == "1.2"
+    db = sqlite3.connect(bundle / "meta" / "chunks.db")
+    try:
+        columns = [row[1] for row in db.execute("PRAGMA table_info(passages)")]
+        assert all(column in columns for column in PAGE_METADATA_COLUMNS)
+        # no transcripts in this build: titles and lessons have no PDF method and no AI provenance
+        rows = db.execute("SELECT DISTINCT text_method, source_run, review_status FROM passages "
+                          "WHERE source IN ('title', 'lesson')").fetchall()
+        assert rows == [("", "", "")]
+    finally:
+        db.close()
+
+
+def test_a_re_signed_bundle_with_an_edited_review_status_is_refused(settings, signed):
+    """Provenance is part of what search reads, so marking AI text as reviewed must break the content hash."""
+    copy = signed("review-status")
+    db = sqlite3.connect(copy / "meta" / "chunks.db")
+    db.execute("UPDATE passages SET review_status = 'reviewed' WHERE vrow = 0")
+    db.commit()
+    db.close()
+    write_checksums_and_sign(copy, load_private_key(settings.signing_key_path))
+    assert _failed(_verify(copy, settings)) == "content hash"
+
+
+def test_a_schema_1_1_bundle_without_page_metadata_still_verifies(settings, signed):
+    """Bundles built before the page metadata columns: same major version, so readers must accept them."""
+    from looma_pipeline.bundle import content_hash
+
+    copy = signed("schema-1.1")
+    db = sqlite3.connect(copy / "meta" / "chunks.db")
+    for column in PAGE_METADATA_COLUMNS:
+        db.execute(f"ALTER TABLE passages DROP COLUMN {column}")
+    db.commit()
+    db.close()
+    manifest = json.loads((copy / MANIFEST_FILE).read_text())
+    manifest["schema_version"] = "1.1"
+    manifest["content_hash"] = content_hash(copy, manifest["embedding"]["model_sha256"],
+                                            manifest["embedding"]["tokenizer_sha256"])
+    (copy / MANIFEST_FILE).write_text(json.dumps(manifest))
+    write_checksums_and_sign(copy, load_private_key(settings.signing_key_path))
+    assert _verify(copy, settings).ok
