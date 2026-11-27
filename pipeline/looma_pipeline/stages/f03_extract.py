@@ -5,8 +5,9 @@ lessons and games from their MongoDB records; PDFs and worksheets page by page (
 `OCR_ENABLED=1` and Tesseract is installed); HTML pages; caption files with start times; and textbook page ranges for
 chapters. A file that cannot be read is logged with its item id and counted; it never stops the run.
 PDF pages (documents and textbook ranges) that have a usable page transcript (extractors/transcripts.py, issue #2)
-take the transcript's text instead of the extracted text and are not sent to OCR; every other page keeps the
-extracted text. The stage stops when a transcript file cannot be read or more than 1% of its rows are malformed.
+take the transcript's text instead of the extracted text, with its markers cleaned (text/markers.py, issue #3), and
+are not sent to OCR; every other page keeps the extracted text. The stage stops when a transcript file cannot be
+read or more than 1% of its rows are malformed.
 Side effects: reads files under the content folder and the transcripts folder; writes `f03_extract.json` in the run
 folder.
 """
@@ -28,6 +29,7 @@ from looma_pipeline.extractors.transcripts import TranscriptIndex, TranscriptPag
 from looma_pipeline.models import TextPiece
 from looma_pipeline.paths import LOOMA_CONTENT_PREFIX
 from looma_pipeline.runctx import RunContext, StageReport
+from looma_pipeline.text.markers import clean_markers
 from looma_pipeline.stages.f01_snapshot import Snapshot
 from looma_pipeline.stages.f02_content_map import ContentEntry, FileRef
 
@@ -45,6 +47,7 @@ class TranscriptUse:
     index: TranscriptIndex
     used: set[tuple[str, int]] = field(default_factory=set)
     files_seen: dict[str, str] = field(default_factory=dict)  # path under the content folder -> its sha256
+    unknown_markers: list[dict] = field(default_factory=list)  # brackets clean_markers() left in the text
 
     def saw(self, ref: FileRef) -> None:
         """Record a PDF the run read, so a transcript of an older version of it can be reported as stale.
@@ -93,7 +96,12 @@ def _page_pieces(item_id: str, source: str, pages: list[PdfPage], expect_nepali:
         transcript = transcripts.take(file_sha256, page.number)
         if transcript is not None:
             report.count("pages_transcript")
-            text = transcript.text
+            cleaned = clean_markers(transcript.text)
+            for marker, n in cleaned.counts.items():
+                report.count(f"transcript_markers_{marker}", n)
+            transcripts.unknown_markers += [{"file": transcript.file, "page": page.number, "bracket": bracket}
+                                            for bracket in cleaned.unknown]
+            text = cleaned.text
         else:
             report.count(f"pages_{page.method}")
             text = page.text
@@ -181,4 +189,5 @@ def _report_transcripts(report: StageReport, transcripts: TranscriptUse, setting
         for page in stale]
     report.details["transcripts"] = {
         "folder": str(settings.transcripts_dir), "allow_unreviewed": settings.transcripts_allow_unreviewed,
-        "files": index.counts["files"], "problems": problems[:MAX_TRANSCRIPT_PROBLEMS_IN_REPORT]}
+        "files": index.counts["files"], "problems": problems[:MAX_TRANSCRIPT_PROBLEMS_IN_REPORT],
+        "unknown_markers": transcripts.unknown_markers[:MAX_TRANSCRIPT_PROBLEMS_IN_REPORT]}
