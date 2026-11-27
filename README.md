@@ -132,6 +132,10 @@ If a translation is already on disk, the program will skip that translation. To 
 make translate-captions
 ```
 
+#### Ingest PDFs Page by Page
+
+Reads textbook chapters and PDF activities page by page from a local content folder and writes one JSON record per page. It writes nothing to MongoDB or Qdrant. See [docs/pdf-ingest.md](docs/pdf-ingest.md).
+
 ## More Developer Notes
 
 When importing a `common` library from `cli`, use a relative import: `from ..common.generate import generate_vectors`
