@@ -3,7 +3,7 @@
 For developers who build Looma's search index. After reading this, you can run the page-level PDF ingest, read its
 output, and tell why a page or an item was skipped.
 
-Last verified: 2026-11-27 at 0554230b
+Last verified: 2026-11-27 at 92c1136a
 
 ## What it does
 
@@ -25,6 +25,8 @@ chapters   ─┘   pages (pn, len)      ├─ transcript for this page? ──
 - `appai/common/embed.py` is unchanged; this is a separate path.
 - Every page is cleaned before it is written, and every line the cleaning removes is listed in the report
   ([Cleaning](#cleaning)).
+- Every record carries Looma's metadata as stored in MongoDB, plus a grade range and a printed page number that
+  each record where they came from ([Looma metadata](#looma-metadata)). Curated fields are only read.
 
 ## Run it
 
@@ -120,7 +122,8 @@ When no transcript is used, the record says why in `fallback_reason`: `no_transc
 |---|---|
 | `schema`, `run_id` | Record format and the run that made it. |
 | `record_id` | `<item id>:<lang>:p<PDF page>`. |
-| `source` | `collection`, `item_id`, `ft`, `file` (relative to the content folder), `file_sha256`, `pdf_page` (1-based). |
+| `source` | `collection`, `item_id`, `ft`, `file` (relative to the content folder), `file_sha256`, `pdf_page` (1-based), `printed_page` and `printed_page_source`. |
+| `looma` | `ch_id` (list), `dn`, `ndn`, `lang`, `subject` (`key1`-`key4`) and `grade` (`lo`, `hi`, `source`, `raw`, `conflict`). See [Looma metadata](#looma-metadata). |
 | `text` | The cleaned page text. |
 | `text_method` | `transcript` or `text_layer`. |
 | `fallback_reason` | Why the text layer was used, or `null`. |
@@ -134,7 +137,8 @@ When no transcript is used, the record says why in `fallback_reason`: `no_transc
 
 It holds the run id, schema, whether it was a dry run, the time, `code_commit`, Python and PyMuPDF versions, the
 configuration, the transcript runs loaded and their problems, a hash of the records (`content_sha256`, equal for two
-runs over the same input), one entry per item with its status and reason, every removed line (`removed_lines`:
+runs over the same input), one entry per item with its status, reason, grade source and printed-page offset vote,
+counts of grade and printed-page sources, every removed line (`removed_lines`:
 item, PDF page, line, rule), every line-break hyphen decision (`hyphens`), counts of markers, removed lines and
 hyphens, the pages left with no text (`empty_pages`), duration and peak memory (dev-machine numbers, not Box
 numbers).
@@ -169,6 +173,46 @@ Transcripts (one page at a time: C1, then M1-M9, then C4):
 
 Markers are resolved innermost first, because cut-off labels sit inside figure text. Unpaired block tags and
 unbalanced brackets are counted (`unpaired_block_tag`, `unbalanced_bracket`) so a reviewer can find them.
+
+## Looma metadata
+
+Fields copied as stored (read only):
+
+| Record field | From | Note |
+|---|---|---|
+| `looma.ch_id` | chapter: its `ID`; other items: `activities.ch_id` | a string or an array in MongoDB; always a de-duplicated list here |
+| `looma.dn`, `looma.ndn` | `activities.dn`, `activities.ndn` | English and Nepali titles |
+| `looma.lang` | `activities.lang` | `en` for a chapter, because only its English textbook pages are read |
+| `looma.subject` | `activities.key1`-`key4` | as stored |
+
+Grade (`looma.grade`), first rule that applies:
+
+| `source` | Rule |
+|---|---|
+| `chapter_id` | A chapter's grade from its id (`10S04` is grade 10). |
+| `activity_cl` | `cl_lo` and `cl_hi`, when both are grades 1-12 and `cl_lo <= cl_hi`. Some documents store these keys with a leading BOM (`﻿cl_lo`); both spellings are read, and `conflict` is `true` when they disagree. |
+| `linked_chapters` | Otherwise the lowest and highest grade of the chapters in `ch_id`. This is inferred, not curated. |
+| `none` | Nothing usable. `lo` and `hi` are `null`. |
+
+`raw` keeps the stored grade fields unchanged, so a reviewer can see what the rule started from. `0` counts as "not
+set", because documents such as the natural-selection guide below store `0`/`0`.
+
+Printed page (`source.printed_page`), first that applies:
+
+| `printed_page_source` | Rule |
+|---|---|
+| `transcript` | The page number written in the transcript row used for the page. |
+| `footer_offset` | The PDF page minus an offset voted from the page numbers in removed footer lines. The vote needs 3 or more agreeing numbers and at least twice the runner-up's votes. A number on half the footer lines (the 10 of "Grade 10") or below half its PDF page (an OCR fragment) doesn't vote. |
+| `none` | No reliable number. |
+
+Links keep using `pdf_page`, because Looma's viewer opens a chapter at `chapters.pn`, a PDF page.
+
+Checked on 2026-11-27 with chapter 10S04 and its 2 linked PDFs:
+
+- 10S04 got grade 10 from its id. The gene-expression guide got 9-10 from `cl_lo`/`cl_hi`. The natural-selection
+  guide stores `0`/`0`, so it got 9-11 from its linked chapters (`linked_chapters`).
+- 10S04's footer numbers voted for offset 4 (4 votes against 1): PDF pages 77-114 are printed pages 73-110. On all
+  38 pages this matches the page number in the transcript. The PhET guides have no page numbers and get `none`.
 
 ## Why an item was skipped or failed
 
