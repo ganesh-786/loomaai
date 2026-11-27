@@ -108,4 +108,4 @@ copies `.env` into the image, so `.env` must not contain real keys. The pipeline
 |---|---|---|---|
 | Embedder (full size) | `data/models/intfloat--multilingual-e5-small/<revision>/model.fp32.onnx` | revision `614241f622f53c4eeff9890bdc4f31cfecc418b3` | 470 MB |
 | Embedder (int8) | same folder, `model.int8.onnx` | the model folder's model_info.json records SHA-256 and quantization | 118 MB |
-| Index bundle | `data/bundles/` (one folder per bundle, named looma-ai-bundle-DATE-SCOPE-rN) | its manifest.json and signed SHA256SUMS; schema 1.1 (with spelling tables) | 143 MB pilot, 191 MB full scope; on the build machine the model part (130 MB) is a hard link to `data/models/` |
+| Index bundle | `data/bundles/` (one folder per bundle, named looma-ai-bundle-DATE-SCOPE-rN) | its manifest.json and signed SHA256SUMS; schema 1.2 (1.1 added spelling tables; 1.2 adds page metadata to passages) | 143 MB pilot, 191 MB full scope; on the build machine the model part (130 MB) is a hard link to `data/models/` |

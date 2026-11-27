@@ -35,6 +35,10 @@ Last verified: 2026-11-01 at 98f8a807
 | Red check, transcript markers (issue #3) | 2026-11-27 | f0f02ce2 | new tests fail on the code before the change: 1 failed, `test_markers` cannot import `text.markers`; 374 others pass | console |
 | `pytest` in the pipeline image | 2026-11-27 | 9db243b2 | 386 passed, 0 failed, 0 skipped | console |
 | `build --scope all --until f06`, content sample, run D's 44 rows, `TRANSCRIPTS_ALLOW_UNREVIEWED=1` | 2026-11-27 | 9db243b2 | 104 passages from 44 pages; 0 brackets and 0 table pipes left; 26/26 critical facts; captions 26/26 by the A-D harness tokenizer, 25/26 by words split at spaces (gold caption F07 reads "Figure 4.7Structure of RNA", missing a space; the bundle text has "Figure 4.7: Structure of RNA"); 0 unknown markers | `data/runs/20261127T054846Z-all-7f8c/` (not in Git) |
+| Red check, page metadata (issue #4) | 2026-11-27 | 32d6a9d5 | the 5 new tests fail on the code before the change; 386 others pass | console |
+| `pytest` in the pipeline image | 2026-11-27 | be0c5999 | 391 passed, 0 failed, 0 skipped | console |
+| `build --scope all`, content sample, run D's 44 rows, `TRANSCRIPTS_ALLOW_UNREVIEWED=1`, then `verify` | 2026-11-27 | be0c5999 | schema 1.2; G5 20/20, G6 English 0.99 and Nepali 1.00, G7 1,645/1,645; `verify ok`; content hash `6b13f338...`, the same as the 2026-11-26 build of the unsplit change | `data/bundles/looma-ai-bundle-2026.11.27-all-r5/` (not in Git) |
+| Quality checks Q1-Q14 on that bundle | 2026-11-27 | be0c5999 | Q1-Q11 and Q13 pass; Q12 page-exact hit@3 0.875 fails the 0.90 gate (search shows a neighbouring page) | [quality evaluation](experiments/2026-11-27-transcript-quality.md) |
 
 The content sample is `data/content/` in the main checkout: Grade 10 Science `Science_10_0016.pdf` and two PhET
 guides, with sources and sha256 in its `manifest.json`. The Makefile's default content folder
