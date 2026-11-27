@@ -28,6 +28,7 @@ def test_env_overrides_and_cehrd_flag():
     ({"CHUNK_OVERLAP_TOKENS": "300"}, "CHUNK_OVERLAP_TOKENS"),
     ({"CHUNK_MAX_TOKENS": "600", "CHUNK_TARGET_TOKENS": "300"}, "CHUNK_MAX_TOKENS"),
     ({"MONGO_URI": "localhost:27017"}, "MONGO_URI"),
+    ({"TRANSCRIPTS_ALLOW_UNREVIEWED": "maybe"}, "TRANSCRIPTS_ALLOW_UNREVIEWED"),
 ])
 def test_invalid_settings_name_the_variable_to_fix(env, needle):
     with pytest.raises(ConfigError, match=needle):
@@ -37,3 +38,15 @@ def test_invalid_settings_name_the_variable_to_fix(env, needle):
 def test_public_view_hides_mongo_credentials():
     s = Settings.from_env({"MONGO_URI": "mongodb://user:secret@db:27017"})
     assert "secret" not in str(s.public_view())
+
+
+def test_transcripts_default_to_the_data_folder_and_reviewed_pages_only():
+    assert Settings.from_env({}).transcripts_dir == Path("/data/transcripts")
+    assert Settings.from_env({"PIPELINE_DATA_DIR": "/x"}).transcripts_dir == Path("/x/transcripts")
+    assert Settings.from_env({}).transcripts_allow_unreviewed is False
+
+
+def test_transcript_settings_can_be_overridden_and_are_shown():
+    s = Settings.from_env({"TRANSCRIPTS_DIR": "/t", "TRANSCRIPTS_ALLOW_UNREVIEWED": "1"})
+    assert s.transcripts_dir == Path("/t") and s.transcripts_allow_unreviewed is True
+    assert s.public_view()["transcripts"] == "/t (unreviewed allowed)"

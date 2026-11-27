@@ -273,3 +273,33 @@ def test_without_ocr_a_scanned_page_is_reported_empty(tmp_path):
     path = pf.scanned_pdf(tmp_path / "scan.pdf", "<p>No text layer here.</p>")
     [page] = extract_pages(path, ocr=None)
     assert page.method == "empty" and page.text == ""
+
+
+class _RecordingOcr:
+    """Stands in for Tesseract: returns fixed text and records which 1-based pages it was asked to read."""
+
+    def __init__(self):
+        self.pages = []
+
+    def page_text(self, page):
+        self.pages.append(page.number + 1)
+        return "Text that OCR read from the page image."
+
+
+def test_pages_with_a_transcript_are_not_sent_to_ocr(tmp_path):
+    # Lines this short (< 40 letters) make every page look scanned, so each one would go to OCR.
+    path = pf.text_pdf(tmp_path / "short.pdf", [["Page one."], ["Page two."], ["Page three."]])
+    ocr = _RecordingOcr()
+    pages = extract_pages(path, ocr=ocr, skip_ocr=frozenset({2}))
+    assert ocr.pages == [1, 3]
+    assert (pages[1].method, pages[1].text) == ("text", "Page two.")
+    assert pages[0].method == "ocr"
+
+
+def test_running_footers_are_found_when_many_pages_have_no_text():
+    # Transcribed scanned pages come back empty (no OCR). The footer share must count only pages with text,
+    # otherwise 4 footers out of 10 pages fall below the 60% rule and stay in the text.
+    pages = _book(["Science and Technology, Grade 10"] * 4) + [PdfPage(90 + i, "", "empty") for i in range(6)]
+    cleaned = remove_repeated_lines(pages)
+    assert all("Technology" not in p.text for p in cleaned[:4])
+    assert all(len(p.text.splitlines()) == 3 for p in cleaned[:4])
