@@ -32,6 +32,9 @@ Last verified: 2026-11-01 at 98f8a807
 | `pytest` in the pipeline image | 2026-11-27 | 1730c33d | 374 passed, 0 failed, 0 skipped | console |
 | `build --scope all --until f03`, content sample, run D's 44 unreviewed transcript rows, `TRANSCRIPTS_ALLOW_UNREVIEWED=1` | 2026-11-27 | 1730c33d | 44 rows used, 44 transcript pages, 0 stale, 0 unmatched, 0 malformed, 0 problems; OCR skipped (0 OCR pages) | `data/runs/20261127T054511Z-all-ad90/` (not in Git) |
 | the same with the default `TRANSCRIPTS_ALLOW_UNREVIEWED=0` | 2026-11-27 | 1730c33d | 44 rows skipped as unreviewed, 0 transcript pages; the page that needs OCR went to OCR (1 OCR page) | `data/runs/20261127T054525Z-all-defa/` (not in Git) |
+| Red check, transcript markers (issue #3) | 2026-11-27 | f0f02ce2 | new tests fail on the code before the change: 1 failed, `test_markers` cannot import `text.markers`; 374 others pass | console |
+| `pytest` in the pipeline image | 2026-11-27 | 9db243b2 | 386 passed, 0 failed, 0 skipped | console |
+| `build --scope all --until f06`, content sample, run D's 44 rows, `TRANSCRIPTS_ALLOW_UNREVIEWED=1` | 2026-11-27 | 9db243b2 | 104 passages from 44 pages; 0 brackets and 0 table pipes left; 26/26 critical facts; captions 26/26 by the A-D harness tokenizer, 25/26 by words split at spaces (gold caption F07 reads "Figure 4.7Structure of RNA", missing a space; the bundle text has "Figure 4.7: Structure of RNA"); 0 unknown markers | `data/runs/20261127T054846Z-all-7f8c/` (not in Git) |
 
 The content sample is `data/content/` in the main checkout: Grade 10 Science `Science_10_0016.pdf` and two PhET
 guides, with sources and sha256 in its `manifest.json`. The Makefile's default content folder

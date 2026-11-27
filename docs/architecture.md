@@ -144,7 +144,7 @@ written. Bundle schema 1.1 adds the spelling tables; a 1.1 reader treats a 1.0 b
 ### PDF pages with a page transcript
 ```
  PDF page (file sha256, page)
-   ├─ usable transcript row? ── yes ─> transcript text ──────────────────┐   OCR skipped for this page
+   ├─ usable transcript row? ── yes ─> transcript text ─> clean markers ─┐   OCR skipped for this page
    │     (reviewed; or unreviewed with TRANSCRIPTS_ALLOW_UNREVIEWED=1)    │
    └─ no ─> text layer / OCR ─> running header and footer cleanup ────────┤
                                                                           ▼
@@ -153,6 +153,9 @@ written. Bundle schema 1.1 adds the spelling tables; a 1.1 reader treats a 1.0 b
 - Rows are matched by the PDF file's sha256 and 1-based page, so a replaced PDF never picks up an old transcript;
   such rows are reported as stale. Rejected rows are never used. For one page, a reviewed row replaces unreviewed
   ones; two different texts with the same status are both dropped and the page keeps its PDF text.
+- Markers become plain text (`pipeline/looma_pipeline/text/markers.py`): caption labels stay ("Figure 4.6: ..."),
+  figure, callout, screenshot and table words stay without tags, blanks and `[illegible]` go, cut-off labels keep
+  their visible letters. Any other bracket is kept and listed in the F3 report, because it may be real text.
 - F3 stops the run when a transcript file cannot be read or more than 1% of its rows are malformed.
 - `pipeline/looma_pipeline/extractors/transcripts.py` reads the files; `pipeline/looma_pipeline/stages/f03_extract.py`
   uses them and reports used, stale, unmatched and malformed rows in the run folder's `f03_extract.json`.
