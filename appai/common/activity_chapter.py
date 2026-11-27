@@ -4,7 +4,8 @@ import re
 from langchain_huggingface import HuggingFaceEmbeddings
 from pymongo.synchronous.database import Database
 
-from .activity import Activity, download_pdf, extract_text_from_pdf
+from .activity import (Activity, PageSourceError, PdfPageSource, download_pdf, extract_text_from_pdf,
+                       parse_looma_int, resolve_content_path)
 
 
 # Pass one of textbook or mongo. If textbook is None then mongo must be provided and the function will look up the
@@ -63,3 +64,41 @@ class ChapterActivity(Activity):
             "chapter_id": self.activity['ID'],
             "cl_official": self.cl_official,
         }
+
+    def page_source(self, mongo: Database, content_dir: str) -> PdfPageSource:
+        """Locates this chapter's English pages inside its textbook PDF (PDF ingest, issue #2).
+
+        Reads the whole textbook from the local content folder instead of a split copy, so page numbers and
+        the file's sha256 match what Looma serves (its viewer opens the chapter at chapters.pn). The page
+        range uses the same arithmetic as split.py:79-81, including Skip's Feb 2025 len=0 skip.
+
+        Args:
+            mongo: the looma database (read only: textbooks.find_one, chapters.find_one).
+            content_dir: the local copy of Looma's content folder.
+
+        Raises:
+            PageSourceError: "textbook_not_found", "textbook_record_incomplete", "no_english_textbook",
+                "chapter_not_found", "no_page_range" or "path_outside_content_dir".
+        """
+        chapter_id = self.activity['ID']
+        try:
+            _, _, _, _, textbook = chapter_url_from_id(chapter_id, files_dir='', textbook=None, mongo=mongo)
+        except TypeError as error:  # find_one returned None, so chapter_url_from_id indexes None
+            raise PageSourceError("textbook_not_found", chapter_id) from error
+        except KeyError as error:
+            raise PageSourceError("textbook_record_incomplete", f"{chapter_id}: no {error}") from error
+        file_name = textbook.get('fn') or ''
+        if not file_name:
+            raise PageSourceError("no_english_textbook", textbook.get('prefix', chapter_id))
+
+        chapter = mongo.chapters.find_one({"_id": chapter_id})
+        if chapter is None:
+            raise PageSourceError("chapter_not_found", chapter_id)
+        first_page = parse_looma_int(chapter.get('pn'))
+        page_count = parse_looma_int(chapter.get('len'))
+        if first_page is None or page_count is None or first_page < 1 or page_count < 1:
+            raise PageSourceError("no_page_range", f"{chapter_id}: pn={chapter.get('pn')!r} len={chapter.get('len')!r}")
+
+        relative_path = textbook['fp'] + file_name
+        return PdfPageSource(relative_path, resolve_content_path(content_dir, relative_path),
+                             first_page, first_page + page_count - 1)
