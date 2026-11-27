@@ -4,7 +4,8 @@ Import only. Written by F8, read by looma_pipeline.search. The FTS5 tokenizer ke
 words (`categories 'L* N* Co M*'`); SQLite's default splits Devanagari words at every vowel sign, which made `पानी`
 match 398 lesson slides instead of the 181 that contain it (measured 2026-10-28). The full-text table is contentless
 (`content=''`): passage text is stored once, in `passages`. FTS rowid = `vrow` = the passage's row in the vector file.
-The spelling tables come from the finished FTS5 index (looma_pipeline.spelling).
+The spelling tables come from the finished FTS5 index (looma_pipeline.spelling). Each passage row also stores its
+page metadata (models.Passage; schema 1.2), so any search hit can be traced to how its text was made.
 """
 
 from __future__ import annotations
@@ -28,7 +29,9 @@ CREATE TABLE items (
 CREATE TABLE item_chapters (ch_id TEXT NOT NULL, item_id TEXT NOT NULL, PRIMARY KEY (ch_id, item_id)) WITHOUT ROWID;
 CREATE TABLE passages (
     vrow INTEGER PRIMARY KEY, passage_id TEXT NOT NULL UNIQUE, item_id TEXT NOT NULL REFERENCES items (item_id),
-    lang TEXT NOT NULL, source TEXT NOT NULL, page INTEGER, t_start REAL, n_tokens INTEGER NOT NULL, text TEXT NOT NULL);
+    lang TEXT NOT NULL, source TEXT NOT NULL, page INTEGER, t_start REAL, n_tokens INTEGER NOT NULL, text TEXT NOT NULL,
+    printed_page TEXT, text_method TEXT NOT NULL, source_run TEXT NOT NULL, source_model TEXT NOT NULL,
+    review_status TEXT NOT NULL);
 CREATE INDEX passages_by_item ON passages (item_id);
 CREATE VIRTUAL TABLE passages_fts USING fts5 (title, body, content='', tokenize="{FTS_TOKENIZER}");
 CREATE TABLE dictionary (en TEXT NOT NULL, np TEXT NOT NULL);
@@ -60,8 +63,9 @@ def build_word_index(path: Path, items: dict[str, Item], passages: list[Passage]
              i.lang, int(i.cehrd), i.chapter_id) for i in (items[item_id] for item_id in used_items)])
         db.executemany("INSERT INTO item_chapters VALUES (?, ?)",
                        [(ch, item_id) for item_id in used_items for ch in items[item_id].ch_ids])
-        db.executemany("INSERT INTO passages VALUES (?,?,?,?,?,?,?,?,?)", [
-            (row, p.passage_id, p.item_id, p.lang, p.source, p.page, p.t_start, p.n_tokens, p.text)
+        db.executemany("INSERT INTO passages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [
+            (row, p.passage_id, p.item_id, p.lang, p.source, p.page, p.t_start, p.n_tokens, p.text, p.printed_page,
+             p.text_method, p.source_run, p.source_model, p.review_status)
             for row, p in enumerate(passages)])
         db.executemany("INSERT INTO passages_fts (rowid, title, body) VALUES (?, ?, ?)", [
             (row, f"{items[p.item_id].title_en} {items[p.item_id].title_np}".strip(), p.text)

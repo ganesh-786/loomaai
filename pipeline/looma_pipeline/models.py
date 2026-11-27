@@ -36,14 +36,23 @@ class TextPiece:
     order: int                    # position within the item and source (slide, page, caption block)
     text: str
     lang: str = "none"            # "en" | "np" | "mixed" | "none"
-    page: int | None = None       # 1-based page in the source PDF
+    page: int | None = None       # 1-based page in the source PDF (what Looma's viewer opens with #page=)
     t_start: float | None = None  # seconds into the video
     expect_nepali: bool = False   # the source is meant to be Nepali (ndn, a Nepali textbook, ...)
+    # Page metadata (issue #4): how this text was made. Empty strings for text that does not come from a PDF page.
+    printed_page: str | None = None  # the number printed on the page; can differ from `page` (10S04: 77 vs 73)
+    text_method: str = ""            # PDF pages: "text" | "ocr" | "transcript"
+    source_run: str = ""             # transcripts: the run that made the text, e.g. "D-claude-direct-read"
+    source_model: str = ""           # transcripts: the model id, when the run records one
+    review_status: str = ""          # transcripts: "reviewed" | "unreviewed"; "" = not AI-made text
 
 
 @dataclass(frozen=True)
 class Passage:
-    """A chunk ready to embed and index (F6). `passage_id` is `<item_id>:<lang>:<n>`."""
+    """A chunk ready to embed and index (F6). `passage_id` is `<item_id>:<lang>:<n>`.
+
+    The page metadata fields are copied from the TextPiece the chunk came from (see TextPiece).
+    """
 
     passage_id: str
     item_id: str
@@ -53,3 +62,8 @@ class Passage:
     page: int | None
     t_start: float | None
     n_tokens: int
+    printed_page: str | None = None
+    text_method: str = ""
+    source_run: str = ""
+    source_model: str = ""
+    review_status: str = ""

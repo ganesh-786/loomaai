@@ -102,12 +102,16 @@ def _page_pieces(item_id: str, source: str, pages: list[PdfPage], expect_nepali:
             transcripts.unknown_markers += [{"file": transcript.file, "page": page.number, "bracket": bracket}
                                             for bracket in cleaned.unknown]
             text = cleaned.text
+            provenance = {"printed_page": transcript.printed_page, "text_method": "transcript",
+                          "source_run": transcript.run, "source_model": transcript.model,
+                          "review_status": transcript.review_status}
         else:
             report.count(f"pages_{page.method}")
             text = page.text
+            provenance = {"text_method": page.method}  # no printed page or AI provenance from the PDF itself
         if text:
             pieces.append(TextPiece(item_id, source, page.number, text, page=page.number,
-                                    expect_nepali=expect_nepali))
+                                    expect_nepali=expect_nepali, **provenance))
     return pieces
 
 

@@ -40,7 +40,8 @@ UNSIGNED = {SUMS_FILE, SIGNATURE_FILE}
 CONTENT_TABLES = {  # table -> columns, in a fixed order
     "items": "item_id, ft, title_en, title_np, subject, grade_lo, grade_hi, grade_source, src, lang, cehrd, chapter_id",
     "item_chapters": "ch_id, item_id",
-    "passages": "vrow, passage_id, item_id, lang, source, page, t_start, n_tokens, text",
+    "passages": "vrow, passage_id, item_id, lang, source, page, t_start, n_tokens, text, "
+                "printed_page, text_method, source_run, source_model, review_status",  # last five: schema 1.2
     "dictionary": "en, np",
     # spell_deletes is left out: it is computed from spell_words alone, and the signed checksums cover its bytes
     "spell_words": "word, df",
@@ -95,10 +96,13 @@ def content_hash(bundle_dir: Path, model_sha256: str, tokenizer_sha256: str) -> 
     db = sqlite3.connect(f"file:{bundle_dir / 'meta' / 'chunks.db'}?mode=ro", uri=True)
     try:
         present = {name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        # A table absent from an older schema is skipped; removing one from a newer bundle still changes the hash.
-        for table, columns in CONTENT_TABLES.items():
+        # A table or column absent from an older schema is skipped, so an older bundle hashes exactly as it did when
+        # it was signed; removing one from a newer bundle still changes the hash.
+        for table, wanted in CONTENT_TABLES.items():
             if table not in present:
                 continue
+            existing = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+            columns = ", ".join(c for c in (part.strip() for part in wanted.split(",")) if c in existing)
             for row in db.execute(f"SELECT {columns} FROM {table} ORDER BY {columns}"):
                 digest.update(canonical_json([table, *row]))
     finally:

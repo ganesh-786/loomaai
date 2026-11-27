@@ -3,7 +3,8 @@
 Import only (called by looma_pipeline.pipeline). Titles become one passage each; longer texts are packed by
 looma_pipeline.chunking. Passage ids are `<item_id>:<lang>:<n>`, numbered in a fixed order (titles, lessons, games,
 documents, captions, textbook pages; then position), so the same input always gives the same ids. Each passage keeps
-its page or video time and is tagged with the language of its own text.
+its page or video time and its piece's page metadata (printed page, text method, source run and model, review
+status; issue #4), and is tagged with the language of its own text.
 Side effects: writes `f06_chunk.json` and `passages.jsonl` in the run folder.
 """
 
@@ -43,7 +44,9 @@ def make_passages(pieces: list[TextPiece], counter: TokenCounter, target: int, m
             n = numbers[(piece.item_id, lang)]
             numbers[(piece.item_id, lang)] += 1
             passages.append(Passage(f"{piece.item_id}:{lang}:{n}", piece.item_id, lang, piece.source, chunk.text,
-                                    piece.page, piece.t_start, chunk.n_tokens))
+                                    piece.page, piece.t_start, chunk.n_tokens, printed_page=piece.printed_page,
+                                    text_method=piece.text_method, source_run=piece.source_run,
+                                    source_model=piece.source_model, review_status=piece.review_status))
     return passages, counts
 
 
