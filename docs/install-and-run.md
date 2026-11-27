@@ -105,6 +105,11 @@ Bundles made before hard links were used (`e6da198e`) each hold their own model 
 | `make pipeline-e2e` | builds `SCOPE` twice, verifies, tampers copies, runs the tests, decides G1 to G10 | `data/` as for a build, plus `data/runs/e2e-<time>/` | no; HTTP to `looma-web` for the comparison |
 | `make pipeline-eval-typos` | measures typo tolerance on `BUNDLE` and decides gates T1, T2, T3 and T5 | `data/runs/eval-typos-<time>/` | no |
 | `make pipeline-clean` | lists old bundles and run folders (`KEEP`, default 2); deletes them only with `APPLY=1` | deletes in `data/bundles/` and `data/runs/` with `APPLY=1` | no |
+| `make search-image` | builds the `looma-search:dev` image from `pipeline/Dockerfile.serve` | no | first build only (base image, packages) |
+| `make search-image-arm64` | builds the same image for an arm64 Box with emulation (`docker buildx`) | no | first build only |
+| `make search-up` | starts `looma-search` for `SEARCH_BUNDLE` with `docker-compose.search.yml` | a container | no |
+| `make search-down` | stops and removes that container | no | no |
+| `make search-health` | asks the running service for `/health` on `127.0.0.1:47200` | no | no (local only) |
 | `make setup-host` | prototype: creates `env/` and installs `requirements.txt` | `env/` | yes |
 | `make build` | prototype: builds the `loomaai` image. **Copies `.env` into the image** | Docker image | yes |
 | `make rmi` | prototype: removes the image and runs `docker system prune -f` (machine-wide) | Docker | no |
@@ -128,6 +133,10 @@ Bundles made before hard links were used (`e6da198e`) each hold their own model 
 
 Not verified yet. The pipeline runs on the build machine only. A Box will receive signed bundles; copying,
 verifying and switching bundles on a Box is later work.
+
+The `search-*` targets were not run for this documentation update. The service itself is covered by the unit and
+in-process HTTP tests (`pipeline/tests/test_service.py`, `pipeline/tests/test_service_http.py`); see
+[testing.md](testing.md).
 
 ## Troubleshooting
 

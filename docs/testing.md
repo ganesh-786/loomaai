@@ -25,6 +25,18 @@ Last verified: 2026-11-01 at 98f8a807
 | `make pipeline-e2e SCOPE=pilot` | 2026-11-01 | 98f8a807 | all decided gates pass (G1-G7, G9); G8 and G10 recorded | `data/runs/e2e-20261101T141550Z/` (not in Git) |
 | `make pipeline-e2e SCOPE=all` | 2026-11-01 | 98f8a807 | all decided gates pass (G1-G7, G9); G8 and G10 recorded | `data/runs/e2e-20261101T141011Z/` (not in Git) |
 | `make pipeline-eval-typos` | 2026-11-01 | 22e028d1 | T1, T2, T3 and T5 pass on the full scope | [typo tolerance experiment](experiments/2026-11-01-typo-tolerance.md) |
+| `pytest` in the pipeline image | 2026-11-27 | ca66da95 | 333 passed, 0 failed, 0 skipped (model and MongoDB available) | console |
+| `e2e --scope all`, empty content folder | 2026-11-27 | ca66da95 | all decided gates pass (G1-G7, G9); G8 not run (see below); 0 files found, so no PDF text | `data/runs/e2e-20261127T053206Z/` (not in Git) |
+| `e2e --scope all`, content sample mounted | 2026-11-27 | ca66da95 | all decided gates pass (G1-G7, G9); 21 files found; 466 text-layer pages and 1 OCR page; peak 1,684 MB; search p50 13.4 ms, p95 33.5 ms (not Box numbers) | `data/runs/e2e-20261127T053742Z/` (not in Git) |
+
+The content sample is `data/content/` in the main checkout: Grade 10 Science `Science_10_0016.pdf` and two PhET
+guides, with sources and sha256 in its `manifest.json`. The Makefile's default content folder
+(`/usr/local/var/www/content`) is empty on the development machine. Both runs on 2026-11-27 used the image built
+2026-11-02 with `pipeline/` mounted read only (its `requirements.lock` is unchanged since that build).
+
+G8 was not run on 2026-11-27: `looma-web` answered HTTP 404 for `looma-database-utilities.php` and 403 for its home
+page, because the running container serves no Looma-II PHP files. That is the local Looma-II setup, not the
+pipeline; G8 is report-only.
 
 Gate results of those runs (dev machine, not Box numbers):
 

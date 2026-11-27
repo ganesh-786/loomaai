@@ -22,6 +22,7 @@ Makefile      prototype targets plus pipeline-* targets
 | `.dockerignore` | build context exclusions for the prototype image | Docker | n/a | n/a |
 | `.gitignore` | ignores `data/`, `.env`, `env`, caches | Git | n/a | n/a |
 | `docker-compose.yml` | prototype services: `looma-streamlit`, `looma-ollama`, `looma-qdrant` | `make run` | `.env` values from the host | containers, `data/` volumes |
+| `docker-compose.search.yml` | the `looma-search` service alone, for a Looma Box or a server: read-only container, port bound to `127.0.0.1` | `make search-up`, `make search-down` | `data/bundles/<SEARCH_BUNDLE>/` and the public key, both read only | a container on `loomanet` |
 | `bootup.sh` | starts Streamlit inside the prototype image | image entry point | `appai/` | `st-llms.log` |
 | `requirements.txt` | prototype Python dependencies | `make setup-host`, `make build` | n/a | n/a |
 | `README.md` | prototype overview and quickstart; links to these docs | read | n/a | n/a |
@@ -41,10 +42,14 @@ Makefile      prototype targets plus pipeline-* targets
 | `pipeline/Dockerfile.dockerignore` | allow-list build context for that image | Docker BuildKit | n/a | n/a |
 | `pipeline/requirements.in` | top-level pipeline dependencies | edit, then refreeze | n/a | n/a |
 | `pipeline/requirements.lock` | exact versions installed in the image | `pip install -r` in the Dockerfile | n/a | n/a |
+| `pipeline/Dockerfile.serve` | the `looma-search` image: search code and its libraries only (no PDF, OCR or MongoDB libraries) | `make search-image`, `make search-image-arm64` | `pipeline/requirements-serve.lock`, `pipeline/looma_pipeline/` | image |
+| `pipeline/requirements-serve.in` | top-level dependencies of the search image | edit, then refreeze within `requirements.lock` | n/a | n/a |
+| `pipeline/requirements-serve.lock` | exact versions installed in the search image | `pip install -r` in `pipeline/Dockerfile.serve` | n/a | n/a |
 | `pipeline/pytest.ini` | test settings and markers (`mongo`, `model`) | `make pipeline-test` | n/a | n/a |
 | `pipeline/looma_pipeline/__init__.py` | package version, bundle schema version | import | n/a | n/a |
 | `pipeline/looma_pipeline/__main__.py` | `python -m looma_pipeline` entry point | CLI | n/a | n/a |
-| `pipeline/looma_pipeline/cli.py` | commands: info, prepare-model, keygen, build, verify, search, e2e, eval-typos, clean | CLI | env vars | depends on the command |
+| `pipeline/looma_pipeline/cli.py` | commands: info, prepare-model, keygen, build, verify, search, serve, e2e, eval-typos, clean | CLI | env vars | depends on the command |
+| `pipeline/looma_pipeline/service.py` | `looma-search` HTTP service: `/health` and `/search` (modes library, chapter, related); imports search code only | `python -m looma_pipeline.service <bundle>` or the `serve` command | a bundle, `SEARCH_*` env vars | one JSON log line per request (never the query text) |
 | `pipeline/looma_pipeline/config.py` | all settings, read once from env vars and validated | import | env vars | none |
 | `pipeline/looma_pipeline/logs.py` | JSON-lines logging; `run.log` per run | import | n/a | stderr, `data/runs/<run_id>/run.log` |
 | `pipeline/looma_pipeline/runctx.py` | run ids, run folders, stage reports | import | n/a | `data/runs/<run_id>/*.json` |

@@ -25,7 +25,8 @@ In scope now:
 - extractors for files (PDF pages, OCR, SRT/VTT captions, HTML) that are built and tested on small generated files.
   The content folder is empty on the development machine, so they are not yet validated on real Looma content.
 
-Out of scope here: the serve-plane service, the PHP bridge, Ask Looma tiers B and C, and Box measurements.
+Also here: the serve-plane search service `looma-search` (`pipeline/looma_pipeline/service.py`), which answers
+search requests from one bundle. Out of scope here: the PHP bridge, Ask Looma tiers B and C, and Box measurements.
 
 Quality goals, in priority order:
 1. Never change curated data. The pipeline only reads MongoDB.
@@ -83,6 +84,7 @@ Quality goals, in priority order:
 | Container or job | Responsibility | Technology and version | Code | Reads | Writes |
 |---|---|---|---|---|---|
 | `looma-pipeline` image (job) | runs F1 to F13, verify, search, e2e | Python 3.12, ONNX Runtime 1.31.1, SQLite 3.46.1 FTS5, Tesseract | `pipeline/` | looma-db (read only), `data/models/`, content folder (read only) | `data/runs/`, `data/cache/`, `data/bundles/`, `data/keys/` |
+| `looma-search` (service) | answers `/search` and `/health` from one bundle; built for Looma-II to call with a time limit and fall back to its keyword search, but no Looma-II page calls it yet (the PHP bridge is not built) | Python 3.12, ONNX Runtime, waitress; `pipeline/Dockerfile.serve`, `docker-compose.search.yml` | `pipeline/looma_pipeline/service.py`, `pipeline/looma_pipeline/search.py` | one bundle and the public key (read only) | logs only |
 | `looma-streamlit` | prototype admin pages (unchanged) | Streamlit 1.41.1 | `appai/` | looma-db, `looma-qdrant` | looma-db (see the prototype audit) |
 | `looma-qdrant` | prototype vector store (unchanged; not used by the pipeline) | Qdrant | n/a | n/a | its volume |
 | `looma-ollama` | prototype local LLM server (unchanged; not used by the pipeline) | Ollama | n/a | n/a | its volume |
@@ -144,7 +146,7 @@ written. Bundle schema 1.1 adds the spelling tables; a 1.1 reader treats a 1.0 b
 | Where | What runs | Notes |
 |---|---|---|
 | Developer machine (amd64, Docker) | `looma-pipeline` image on network `loomanet` | the only place builds run |
-| Looma Box (arm64, offline) | nothing from this pipeline yet; it will receive bundles | not verified yet |
+| Looma Box (arm64, offline) | `looma-search` with one bundle (`docker-compose.search.yml`); no builds | not verified on a Box yet |
 
 Volumes: `data/` is mounted at `/data`, the content folder read-only at `/content`. The container runs as the host
 user and has a 2 GiB memory limit. Measured peaks: 1,592 MB for a full-scope build and 1,666 MB for a full-scope

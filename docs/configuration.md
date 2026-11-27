@@ -33,6 +33,7 @@ Read once by `pipeline/looma_pipeline/config.py`. Defaults work inside the `loom
 | `PIPELINE_GIT_SHA` | `unknown` | pipeline config | code version written into manifests | set by the Makefile | no |
 | `HF_HUB_OFFLINE` | `1` (image) | `huggingface_hub` | blocks network access except in `make pipeline-model`, which sets `0` | `1` | no |
 | `HF_HUB_DISABLE_TELEMETRY` | `1` (image) | `huggingface_hub` | no telemetry | `1` | no |
+| `ORT_DISABLE_TELEMETRY` | `1` (both images; also set by `pipeline/looma_pipeline/__init__.py` when unset) | ONNX Runtime | keeps ONNX Runtime from sending usage events; checked by `pipeline/tests/test_no_phone_home.py` | `1` | no |
 
 ## Make variables for the pipeline targets
 
@@ -45,6 +46,24 @@ Read once by `pipeline/looma_pipeline/config.py`. Defaults work inside the `loom
 | `PIPELINE_CONTENT_DIR` | `/usr/local/var/www/content` | host content folder mounted read only at `/content` |
 | `KEEP` | `2` | newest bundles and runs of each kind kept by `make pipeline-clean` |
 | `APPLY` | empty | `1` makes `make pipeline-clean` delete; otherwise it only lists |
+| `SEARCH_BUNDLE` | none | bundle folder in `data/bundles/` that `make search-up` serves |
+| `SEARCH_IMAGE` | `looma-search:dev` | tag of the search service image |
+
+## Environment variables: search service
+
+Read by `pipeline/looma_pipeline/service.py` (`Policy.from_env`, `Listen.from_env`). `docker-compose.search.yml` sets
+the first three; the image sets `SEARCH_HOST=0.0.0.0` and `SEARCH_PORT=47200`. `LOOMA_SERVER` is read here too.
+
+| Variable | Default | Purpose | Example | Secret |
+|---|---|---|---|---|
+| `SEARCH_THREADS` | `4` | worker threads that answer requests | `4` | no |
+| `SEARCH_GRADE_WINDOW` | `1` | `related` mode: chapter grade plus or minus this many grades (provisional, open question S7) | `1` | no |
+| `SEARCH_MIN_SIMILARITY` | empty (off) | drop results below this cosine similarity; off until calibrated on the golden questions | `0.84` | no |
+| `SEARCH_HOST` | `127.0.0.1` (`0.0.0.0` in the image) | address to listen on | `0.0.0.0` | no |
+| `SEARCH_PORT` | `47200` | port to listen on | `47200` | no |
+| `SEARCH_MAX_QUERY_CHARS` | `200` | longer queries are refused | `200` | no |
+| `SEARCH_MAX_RESULTS` | `50` | largest `k` a request may ask for | `50` | no |
+| `SEARCH_RELATED_MIN_RESULTS` | `3` | `related` mode widens to all subjects below this many results | `3` | no |
 
 ## Environment variables: prototype (`appai/`)
 
@@ -68,6 +87,7 @@ copies `.env` into the image, so `.env` must not contain real keys. The pipeline
 | Service | Container port | Host port and bind address | URL |
 |---|---|---|---|
 | pipeline | none | none | n/a (a job, not a service) |
+| `looma-search` | 47200 | `47200` on `127.0.0.1` only, in `docker-compose.search.yml` | `http://127.0.0.1:47200/health`; Looma-II uses `http://looma-search:47200` on `loomanet` |
 | `looma-streamlit` (prototype) | 4700 | `47000` on all interfaces in `docker-compose.yml` | `http://localhost:47000/loomaai` |
 | `looma-qdrant` (prototype) | 6333 | `46333` on all interfaces | `http://localhost:46333` |
 | `looma-ollama` (prototype) | 11434 | `11434` on all interfaces | `http://localhost:11434` |
