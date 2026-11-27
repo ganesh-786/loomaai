@@ -212,3 +212,14 @@ def test_a_transcribed_page_is_not_sent_to_ocr(settings, monkeypatch):
     counts = _report(ctx)["counts"]
     assert counts["pages_ocr"] == 1 and counts["pages_transcript"] == 1
 
+
+def test_transcript_markers_are_cleaned_and_counted(settings):
+    sha = _tools_pdf(settings)
+    page_text = "[Figure 1.2: A ruler]\n[Figure text: cm; m[cut off]]\nUse a [blank] tape."
+    _write_transcripts(settings, [{"file_sha256": sha, "page": 1, "text": page_text}])
+    ctx, pieces = _extract(settings)
+    assert _by_item(pieces, fx.A_PDF_TOOLS, "document")[0].text == "Figure 1.2: A ruler\ncm; m\nUse a tape."
+    counts = _report(ctx)["counts"]
+    assert (counts["transcript_markers_figure_caption"], counts["transcript_markers_figure_text"],
+            counts["transcript_markers_cut_off"], counts["transcript_markers_blank"]) == (1, 1, 1, 1)
+
