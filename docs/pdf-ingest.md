@@ -3,7 +3,7 @@
 For developers who build Looma's search index. After reading this, you can run the page-level PDF ingest, read its
 output, and tell why a page or an item was skipped.
 
-Last verified: 2026-11-27 at c7457185
+Last verified: 2026-11-27 at 0554230b
 
 ## What it does
 
@@ -16,14 +16,15 @@ looma-db (read only)                 content folder (local copy)        output (
 activities ─┐                        <fp><fn>  the PDF                  data/ingest/<run_id>/
 textbooks  ─┼─ which file, which ──► │                                    pages.jsonl   one record per page
 chapters   ─┘   pages (pn, len)      ├─ transcript for this page? ──►     report.json   counts, reasons, versions
-                                     │    yes, passes the gate → transcript text
-                                     │    no                   → PDF text layer (PyMuPDF)
+                                     │    yes, passes the gate → transcript text → marker cleaning (M1-M9)
+                                     │    no                   → PDF text layer   → text-layer cleaning (C1-C4)
 ```
 
 - It reads MongoDB with `find`, `find_one` and `ping` only. It writes nothing to MongoDB or Qdrant.
 - It downloads nothing. Every PDF comes from the local content folder.
 - `appai/common/embed.py` is unchanged; this is a separate path.
-- The text is kept exactly as read. This step does not clean it.
+- Every page is cleaned before it is written, and every line the cleaning removes is listed in the report
+  ([Cleaning](#cleaning)).
 
 ## Run it
 
@@ -59,7 +60,10 @@ run_id=pdfingest-<time>-<hash> items={'ok': 3} pages=44 methods={'text_layer': 4
 
 Checked on 2026-11-27 against the local `looma-db`: chapter 10S04 and its 2 linked PDFs gave 3 items, 44 pages.
 With unreviewed transcripts and the default gate, all 44 pages used the text layer (`transcript_unreviewed`).
-With `--allow-unreviewed`, all 44 used the transcript. Timings were dev-machine numbers, not Box numbers.
+With `--allow-unreviewed`, all 44 used the transcript. On the text layer, the cleaning removed the running footer
+from 44 pages and 1 page number, joined 1 line-break hyphen and kept 4. PDF page 93 of 10S04 is a concept-map image
+whose text layer holds only the footer, so it is listed in `empty_pages`. Timings were dev-machine numbers, not
+Box numbers.
 
 ## Options and settings
 
@@ -117,20 +121,54 @@ When no transcript is used, the record says why in `fallback_reason`: `no_transc
 | `schema`, `run_id` | Record format and the run that made it. |
 | `record_id` | `<item id>:<lang>:p<PDF page>`. |
 | `source` | `collection`, `item_id`, `ft`, `file` (relative to the content folder), `file_sha256`, `pdf_page` (1-based). |
-| `text` | The page text as read. |
+| `text` | The cleaned page text. |
 | `text_method` | `transcript` or `text_layer`. |
 | `fallback_reason` | Why the text layer was used, or `null`. |
 | `transcript` | `run`, `model`, `review_status`, `line` of the transcript used, or `null`. |
 | `review_status` | `approved`, `unreviewed` or `unchecked` (text layer). |
 | `checked` | `true` only for an approved transcript. |
+| `cleaning` | Text layer: `lines_removed`, `hyphens_joined`, `hyphens_kept`. Transcript: `markers`, a count per marker type. |
 | `quality` | `chars` and `words` of `text`. |
 
 ## Run report (`report.json`)
 
 It holds the run id, schema, whether it was a dry run, the time, `code_commit`, Python and PyMuPDF versions, the
 configuration, the transcript runs loaded and their problems, a hash of the records (`content_sha256`, equal for two
-runs over the same input), one entry per item with its status and reason, the pages with no text
-(`empty_pages`), duration and peak memory (dev-machine numbers, not Box numbers).
+runs over the same input), one entry per item with its status and reason, every removed line (`removed_lines`:
+item, PDF page, line, rule), every line-break hyphen decision (`hyphens`), counts of markers, removed lines and
+hyphens, the pages left with no text (`empty_pages`), duration and peak memory (dev-machine numbers, not Box
+numbers).
+
+## Cleaning
+
+The rules were fixed before any results were seen. C2 was changed once after the pilot (the first version left
+the footer on all 6 PhET pages); the comment in `appai/common/text_cleaning.py` records why.
+
+Text layer (all pages of one item together):
+
+| Rule | What it does |
+|---|---|
+| C1 | Unicode NFC; ligatures U+FB00-FB06 become letters; soft hyphen, zero-width space and BOM are removed. ZWJ and ZWNJ stay, because Devanagari needs them. |
+| C2 | Removes running lines (footers and headers) in items with 3 or more pages. The running line is the line found on the most pages (3 or more), at a page edge on at least one page, and on at least half the pages. Matching lines go wherever they sit, because PyMuPDF's text order puts the footer mid-page on some pages. Lines that are only a number at a page edge go too. |
+| C3 | Joins `word-` + line break + `word` only if the joined word appears elsewhere in the item; otherwise it keeps `word-word`. |
+| C4 | Turns non-breaking and other spaces into one space, strips lines, keeps at most one blank line in a row. |
+
+Transcripts (one page at a time: C1, then M1-M9, then C4):
+
+| Rule | Marker | Result |
+|---|---|---|
+| M1 | `[Figure N: caption]` | `Figure N caption` |
+| M2 | `[Figure text: a; b]` | `a; b` |
+| M3 | `[Callouts: ...]`, `[Screenshot text: ...]` | their words |
+| M4 | `[Table]` rows `[End table]` | rows, cells joined by `; `, empty cells dropped |
+| M5 | `[Concept map]` ... `[End concept map]` | the lines, arrows kept |
+| M6 | `[blank]` | dropped |
+| M7 | `x[cut off]` | `x` |
+| M8 | `[illegible]` | dropped |
+| M9 | any other `[Name: ...]` | its words, counted as `unknown_marker`; other brackets such as `[1]` stay as printed |
+
+Markers are resolved innermost first, because cut-off labels sit inside figure text. Unpaired block tags and
+unbalanced brackets are counted (`unpaired_block_tag`, `unbalanced_bracket`) so a reviewer can find them.
 
 ## Why an item was skipped or failed
 
